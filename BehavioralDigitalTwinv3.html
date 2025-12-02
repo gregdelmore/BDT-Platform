@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Behavioral Digital Twin (BDT) Enterprise Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chart.js for visualization placeholders -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        /* Global & Layout Styles */
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .sidebar-item { transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 8px; font-weight: 600; color: #4b5563; }
+        /* Deep Indigo Blue for BDT branding */
+        .bg-bdt-primary { background-color: #374151; }
+        .text-bdt-primary { color: #1e3a8a; } 
+        .border-bdt-primary { border-color: #1e3a8a; } 
+        .sidebar-item.active { background-color: #1e3a8a; color: white; box-shadow: 0 4px 10px rgba(30, 58, 138, 0.4); }
+        .sidebar-item:hover:not(.active) { background-color: #e5e7eb; color: #1f2937; }
+        .card { box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); border-radius: 0.75rem; background-color: white; }
+        
+        /* BDT Specific Colors & Microcopy Styles */
+        .status-connected { background-color: #10b981; color: white; }
+        .status-pending { background-color: #fcd34d; color: #78350f; }
+        .status-error { background-color: #f87171; color: #991b1b; }
+        .confidence-verified { background-color: #06b6d4; color: white; } /* Cyan for verified/agentic */
+        .confidence-high { background-color: #34d399; color: #065f46; } 
+        .confidence-low { background-color: #fca5a5; color: #881111; } 
+        .confidence-medium { background-color: #fcd34d; color: #92400e; } 
+        .twin-status-ready { background-color: #10b981; color: white; }
+        .twin-status-learning { background-color: #fbbf24; color: #78350f; }
+        .chat-message-assistant { background-color: #e0f7fa; border-radius: 1rem 1rem 1rem 0.5rem; }
+        .chat-message-user { background-color: #1e3a8a; border-radius: 1rem 1rem 0.5rem 1rem; } 
+        .chart-placeholder {
+            min-height: 250px; background-color: #f8fafc; border: 1px solid #e5e7eb;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: #6b7280;
+            border-radius: 0.5rem; text-align: center; font-weight: 600;
+        }
+        .ontology-card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .ontology-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1); }
+        .h-in-loop-button { transition: background-color 0.15s ease; }
+        .risk-badge { font-size: 0.7rem; padding: 4px 8px; border-radius: 9999px; font-weight: 700; }
+        /* Added for Process Confidence visualization */
+        .confidence-bar-container { width: 100%; background: #e5e7eb; border-radius: 4px; overflow: hidden; height: 8px; margin-top: 4px; }
+        .confidence-bar { height: 100%; background-color: #10b981; transition: width 0.3s ease; }
+    </style>
+    <script>
+        // --- Icon Definitions (Lucide Icons) ---
+        const icons = {
+            "LayoutDashboard": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
+            "MessageSquare": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+            "Users": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+            "GitBranch": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9c-1.5 1.5-3 3-3 5"/></svg>',
+            "Map": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="21"/><line x1="15" x2="15" y1="6" y2="24"/></svg>',
+            "Settings": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.44a2 2 0 0 0-1.5 1.77l-.61 3.51a2 2 0 0 0-1.78 1.54l-.44 3.01a2 2 0 0 0 1.25 1.93l3.51.61a2 2 0 0 0 1.54 1.78l3.01.44a2 2 0 0 0 1.93-1.25l.61-3.51a2 2 0 0 0 1.77-1.5l.44-3.01a2 2 0 0 0-1.25-1.93l-3.51-.61a2 2 0 0 0-1.54-1.78L14 3.14a2 2 0 0 0-1.77-1.5Z"/><circle cx="12" cy="12" r="3"/></svg>',
+            "Zap": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+            "Server": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6" y1="6" y2="6"/><line x1="6" x2="6" y1="18" y2="18"/></svg>',
+            "Calendar": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>',
+            "Briefcase": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+            "Shield": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-5 7-10 7s-10-2-10-7V5l10-4 10 4z"/></svg>',
+            "Target": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+            "CheckCircle": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M9 11l3 3L22 4"/></svg>',
+            "AlertTriangle": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h18.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>',
+            "Mail": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+            "FileText": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+            "Database": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></ellipse></svg>',
+            "Switches": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M16 21v-2"/><path d="M16 15v-2"/><path d="M8 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/><path d="M8 11V9"/><path d="M8 5V3"/></svg>',
+            "Clock": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+        };
+
+        // --- Demo Data (Enhanced to reflect new ontology structure and L4 tasks) ---
+        const CLONE_DATA_MAP = {
+            "Davinci (The Renaissance Man)": { // UPDATED ID and TITLE
+                person_name: "Davinci (The Renaissance Man)", 
+                twin_type: "Individual",
+                twin_status: "Ready", 
+                capability_level: "Level 4 (Delegated Agent) - HILT Ready",
+                last_ingest: "5 minutes ago",
+                commStyle: "Concise and Direct, preferring structured lists.", 
+                decisionStyle: "Data-driven, high reversibility tolerance for technical decisions.", 
+                riskTolerance: "Low technical risk, preferring proven systems. High *process* risk.",
+                
+                // DATA FOR DRILL-DOWNS (Individual)
+                knowledge_domains: [
+                    { name: "Claims Appeal Logic", depth: "Deep (120+ docs)", unique: "High (95%)", transfer: "Hard", activity: "2 days ago" },
+                    { name: "Process Automation Scripts", depth: "Deep (GitHub)", unique: "Medium", transfer: "Medium", activity: "1 week ago" },
+                    { name: "Vendor Negotiation History", depth: "Medium", unique: "Medium", transfer: "Medium", activity: "3 weeks ago" },
+                    { name: "Financial Forecasting", depth: "Shallow (20 docs)", unique: "Low", transfer: "Easy", activity: "1 month ago" },
+                ],
+                processes: [
+                    { name: "P1 Server Outage Resolution SOP", trigger: "Monitoring Alert", level: "L2/3", confidence: 85, duration: "45 min", delegation: "Minimal delegation (Stress behavior)." },
+                    { name: "Vendor License Escalation Workflow", trigger: "License Block", level: "L3", confidence: 78, duration: "3 hours", delegation: "Escalates directly to VP (Relationship Intelligence)." },
+                    { name: "Daily Standup Prep (Email Draft)", trigger: "8 AM Calendar Event", level: "L1", confidence: 98, duration: "5 min", delegation: "Fully automated task." },
+                ],
+                relationships: [
+                    { person: "Sarah Chen (VP, Vendor Relations)", role: "VP", volume: 145, influence: "High", topics: ["Licensing", "Contracts"] },
+                    { person: "John Doe (Infra Engineer)", role: "Engineer", volume: 220, influence: "Medium", topics: ["T-9000 Issues", "Patching"] },
+                    { person: "R&D Team (External)", role: "Team", volume: 50, influence: "Low", topics: ["New Tech", "Experimentation"] },
+                ],
+                tools: [
+                    { name: "Autotask", category: "Ticketing", usage: "High", proficiency: "Expert", candidate: "High Friction" },
+                    { name: "Power BI", category: "Analytics", usage: "Medium", proficiency: "Intermediate", candidate: "Reporting" },
+                    { name: "Python IDE", category: "Development", usage: "Low", proficiency: "Expert", candidate: "Code Automation" },
+                    { name: "Zoom/Teams", category: "Meetings", usage: "High", proficiency: "Intermediate", candidate: "N/A" },
+                ],
+                negative_space: [
+                    { dimension: "Billing/Finance", pattern: "Tasks consistently avoided or delegated to Accounting team.", evidence: "12 instances of auto-forwarded billing emails.", guardrail: true, risk: 'High' },
+                    { dimension: "New Vendor Evaluation", pattern: "Never initiates contact with new open-source vendors or proposals.", evidence: "Logs show zero adoption or promotion of open-source network infrastructure.", guardrail: true, risk: 'Medium' },
+                    { dimension: "Friday PM Requests", pattern: "Automatically defers any non-critical request submitted after 3 PM on Fridays.", evidence: "Calendar and Teams logs show 90% deferral rate.", guardrail: false, risk: 'Low' },
+                ],
+                
+                ontology_mapping: { Decisions: { value: 75, max: 100, label: "Analysis Depth (High)", description: "High reliance on deep data analysis before decision." }, Power: { value: 40, max: 100, label: "Autonomy Preference (Low)", description: "Escalates when the autonomy boundary is exceeded." }, Fear: { value: 85, max: 100, label: "Safety Buffers (Maximized)", description: "Excessive logging/backup behaviors for stability." }, Reward: { value: 90, max: 100, label: "Incentive Response (Efficiency)", description: "Optimizes for maximum efficiency and minimum recurring tickets." }, Meaning: { value: 65, max: 100, label: "Value Alignment (Stability)", description: "Value expressions emphasize rock-solid service stability." } },
+            },
+            "Infra Triage Team": {
+                person_name: "Infra Triage Team", 
+                twin_type: "Group",
+                twin_status: "Ready", 
+                capability_level: "Level 2 (Process Mirror)",
+                last_ingest: "2 hours ago",
+                commStyle: "Technical and Verbose, prioritizing clarity.", 
+                decisionStyle: "Highly decentralized, rule-based responses.", 
+                riskTolerance: "Medium process risk, extremely low service interruption risk.",
+                
+                // DATA FOR DRILL-DOWNS (Group)
+                knowledge_domains: [
+                    { name: "Alert Filtering & Routing", depth: "Deep (300+ logs)", unique: "Low (Shared SOP)", transfer: "Easy", activity: "1 hour ago" },
+                    { name: "Legacy System Access", depth: "Medium", unique: "High (Tribal Knowledge)", transfer: "Hard", activity: "1 day ago" },
+                    { name: "Deployment Rollback Procedures", depth: "Deep (150 docs)", unique: "Medium", transfer: "Medium", activity: "3 days ago" },
+                    { name: "Hardware Procurement", depth: "Shallow (5 docs)", unique: "Low", transfer: "Easy", activity: "2 weeks ago" },
+                ],
+                processes: [
+                    { name: "Tier 1 Alert Triage & Routing", trigger: "Monitoring System Alert", level: "L2", confidence: 95, duration: "5 min", delegation: "Minimal, rule-based automated routing." },
+                    { name: "Weekend On-Call Handover", trigger: "Friday 5 PM", level: "L1/2", confidence: 88, duration: "30 min", delegation: "Highly structured communication (Patterned Chat)." },
+                    { name: "Escalation to L2/L3", trigger: "Alert persists > 15 min", level: "L2", confidence: 92, duration: "1 min", delegation: "Scripted handoff." },
+                ],
+                relationships: [
+                    { person: "NOC Center (External)", role: "Vendor", volume: 500, influence: "Critical", topics: ["Alert Volume", "Escalation"] },
+                    { person: "Level 2 Support Team", role: "Internal Team", volume: 1000, influence: "High", topics: ["Ticket Handoff", "Root Cause Analysis"] },
+                    { person: "Lead Architect", role: "Manager", volume: 20, influence: "Very High", topics: ["Major Design", "Approvals"] },
+                ],
+                tools: [
+                    { name: "PagerDuty", category: "Alerting", usage: "Critical", proficiency: "Expert", candidate: "N/A" },
+                    { name: "JIRA", category: "Ticketing", usage: "High", proficiency: "Intermediate", candidate: "Automation" },
+                    { name: "Grafana", category: "Monitoring", usage: "High", proficiency: "Expert", candidate: "Alert Analysis" },
+                    { name: "GitLab", category: "Code", usage: "Medium", proficiency: "Intermediate", candidate: "Code Review" },
+                ],
+                negative_space: [
+                    { dimension: "Customer Communication", pattern: "Consistently defers external communication tasks to Tier 2 support.", evidence: "Analysis of ticket resolution chat logs.", guardrail: true, risk: 'High' },
+                    { dimension: "Major System Architecture", pattern: "Never discusses design decisions; always refers to Lead Architect.", evidence: "Zero documents or emails initiating architecture discussion.", guardrail: true, risk: 'Medium' },
+                    { dimension: "Budgetary Approvals", pattern: "Avoids all spending approvals outside of tool subscriptions.", evidence: "Finance team emails immediately forwarded.", guardrail: false, risk: 'Low' },
+                ],
+                
+                ontology_mapping: { Decisions: { value: 95, max: 100, label: "Process Adherence (High)", description: "Strictly follows predefined runbooks and processes." }, Power: { value: 70, max: 100, label: "Escalation Speed (Fast)", description: "High comfort with escalation to prevent service interruption." }, Fear: { value: 30, max: 100, label: "Change Aversion (Low)", description: "Prone to experimentation if runbook fails." }, Reward: { value: 45, max: 100, label: "Response Time (Speed)", description: "Prioritizes immediate ticket closure over long-term solutions." }, Meaning: { value: 80, max: 100, label: "Service Continuity (Critical)", description: "Core value is keeping the lights on." } },
+            }
+        };
+
+        const INITIAL_PERSONA_ID = "Davinci (The Renaissance Man)"; // UPDATED INITIAL ID
+
+        let appState = {
+            isLoggedIn: false, 
+            hasConsented: false, 
+            currentPage: 'Dashboard',
+            currentChatIndex: -1,
+            USER_EMAIL: 'Behavioral', 
+            USER_PASS: 'Twin',
+            activePersonaId: INITIAL_PERSONA_ID,
+            ontologyValues: CLONE_DATA_MAP[INITIAL_PERSONA_ID].ontology_mapping, // State tied to active persona
+        };
+        
+        function getActivePersonaData() {
+            return CLONE_DATA_MAP[appState.activePersonaId] || CLONE_DATA_MAP[INITIAL_PERSONA_ID];
+        }
+
+        // --- Utility Functions ---
+
+        function getIcon(name, size = 6) {
+            return icons[name] ? `<span class="h-${size} w-${size} inline-block">${icons[name]}</span>` : '';
+        }
+
+        function getStatusBadge(status) {
+            const colors = {
+                'Connected': 'status-connected',
+                'Pending Auth': 'status-pending',
+                'Error': 'status-error'
+            };
+            return `<span class="text-xs font-semibold px-3 py-1 rounded-full ${colors[status]}">${status.toUpperCase()}</span>`;
+        }
+
+        function showLoadingIndicator(show, message = "Switching context...") {
+            const loadingArea = document.getElementById('loading-overlay');
+            if (loadingArea) {
+                loadingArea.innerHTML = show ? 
+                    `<div class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-40 rounded-xl">
+                        <div class="flex items-center space-x-3 p-4 bg-indigo-50 border-t-4 border-bdt-primary rounded-lg shadow-xl">
+                            <svg class="animate-spin h-5 w-5 text-bdt-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                            <p class="text-sm font-medium text-gray-700">${message}</p>
+                        </div>
+                    </div>` : '';
+            }
+        }
+
+        function showAlert(message, type = 'success') {
+            let container = document.getElementById('alert-container'); 
+            if (!container) {
+                 container = document.createElement('div');
+                 container.id = 'alert-container';
+                 document.body.appendChild(container);
+            }
+
+            console.log(`[ALERT/${type.toUpperCase()}]: ${message}`); 
+
+            const color = type === 'success' ? 'bg-green-50 border-green-400 text-green-700' : 
+                          type === 'error' ? 'bg-red-50 border-red-400 text-red-700' :
+                          'bg-indigo-50 border-indigo-400 text-indigo-700';
+            const icon = type === 'success' ? icons.CheckCircle : icons.AlertTriangle;
+            
+            const alert = document.createElement('div');
+            alert.className = `fixed top-4 right-4 z-50 p-4 rounded-lg border-l-4 ${color} shadow-xl transition-opacity duration-300`;
+            alert.innerHTML = `<div class="flex items-center space-x-3">${getIcon('Zap', 5)}<p class="font-medium text-sm">${message}</p><button onclick="this.parentNode.parentNode.remove()" class="ml-auto text-gray-500 hover:text-gray-900">X</button></div>`;
+            
+            container.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 300);
+            }, 5000);
+        }
+        
+        function switchPersona(newPersonaId) {
+            if (newPersonaId === appState.activePersonaId) return;
+
+            // Show loading indicator before starting the switch
+            showLoadingIndicator(true);
+
+            setTimeout(() => {
+                // 1. Update State
+                appState.activePersonaId = newPersonaId;
+                appState.ontologyValues = CLONE_DATA_MAP[newPersonaId].ontology_mapping;
+                appState.currentChatIndex = -1; // Reset chat context
+
+                // 2. Re-render UI
+                renderApp();
+                
+                // 3. Post-switch cleanup
+                showAlert(`Switched to persona: ${newPersonaId}`, 'info');
+                showLoadingIndicator(false);
+
+                // Re-render chart if on the persona page
+                if (appState.currentPage === 'Persona') {
+                    setTimeout(updateOntologyChart, 100);
+                }
+            }, 300); // Small delay to simulate network latency and show the loading state
+        }
+
+
+        // --- Core Layout and Navigation ---
+        function renderApp() {
+            document.getElementById('app').innerHTML = `
+                <div id="alert-container"></div>
+                ${appState.isLoggedIn ? 
+                    (appState.hasConsented ? renderDashboardLayout() : renderConsentPage())
+                    : renderLoginPage()}
+            `;
+        }
+
+        function renderLoginPage() {
+             return `
+                <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+                    <div class="max-w-md w-full space-y-8 bg-white p-10 card shadow-2xl">
+                        <div class="text-center">
+                            <h2 class="mt-6 text-3xl font-extrabold text-bdt-primary">Behavioral Digital Twin (BDT)</h2>
+                            <p class="mt-2 text-sm text-gray-600">Securely accessing learned behavioral patterns.</p>
+                        </div>
+                        <form class="mt-8 space-y-6" onsubmit="handleLogin(event)">
+                            <div class="rounded-md shadow-sm -space-y-px">
+                                <div>
+                                    <input id="username" name="username" type="text" required class="appearance-none rounded-t-lg relative block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="Username" value="Behavioral">
+                                </div>
+                                <div>
+                                    <input id="password" name="password" type="password" required class="appearance-none rounded-b-lg relative block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="Password" value="Twin">
+                                </div>
+                            </div>
+
+                            <div id="login-error" class="text-sm text-red-600 font-medium" style="display:none;"></div>
+
+                            <div>
+                                <button type="submit" class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-lg font-semibold rounded-lg text-white bg-bdt-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                                    Sign In to Twin Workspace
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderConsentPage() {
+             return `
+                <div class="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
+                    <div class="w-full max-w-4xl bg-white p-10 card shadow-xl">
+                        <div class="text-center">
+                            ${getIcon('Shield', 10)}
+                            <h2 class="mt-3 text-3xl font-extrabold text-bdt-primary">BDT Data Consent & Ethical Guardrails</h2>
+                            <p class="mt-2 text-base text-gray-600">This AI Twin is **read-only** and must operate within strict, auditable boundaries.</p>
+                        </div>
+                        
+                        <div class="mt-8 space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="p-5 border-l-4 border-indigo-500 rounded-lg bg-indigo-50">
+                                    <h3 class="font-bold text-lg text-indigo-800 flex items-center">${getIcon('Briefcase', 5)} Data Scope & Limitation</h3>
+                                    <ul class="text-sm text-gray-700 mt-2 space-y-1 ml-4 list-disc">
+                                        <li>BDT uses read-only access to work data (M365, Ticketing).</li>
+                                        <li>**Excluded:** Personal health/financial, HR reviews, legal comms.</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="p-5 border-l-4 border-green-500 rounded-lg bg-green-50">
+                                    <h3 class="font-bold text-lg text-green-800 flex items-center">${getIcon('Target', 5)} Agentic Control (HILT)</h3>
+                                    <ul class="text-sm text-gray-700 mt-2 space-y-1 ml-4 list-disc">
+                                        <li>Agent actions require **Human-in-the-Loop (HILT) approval** (Level 4).</li>
+                                        <li>Every action is traceable and logged in the **Audit Trail**.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="pt-4 border-t border-gray-200">
+                                <label for="consent-checkbox" class="flex items-start">
+                                    <input type="checkbox" id="consent-checkbox" name="consent-checkbox" class="h-6 w-6 text-bdt-primary border-gray-300 rounded mt-1">
+                                    <span class="ml-3 text-base text-gray-900">
+                                        I confirm I understand and agree to the use of my authorized work data to reconstruct processes and decision patterns for knowledge preservation.
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div>
+                                <button type="button" onclick="handleConsent()" class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-lg font-semibold rounded-lg text-white bg-bdt-primary hover:bg-indigo-700 transition duration-150 ease-in-out">
+                                    Acknowledge & Enter Twin Workspace
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderDashboardLayout() {
+            // Removed internal alert-container, as it's now wrapped by renderApp()
+            return `
+                <div class="flex h-screen overflow-hidden">
+                    ${renderSidebar()}
+                    
+                    <div class="flex flex-col flex-1 overflow-x-hidden relative" id="loading-overlay-parent">
+                        <div id="loading-overlay"></div> <!-- Loading indicator for persona switch -->
+                        ${renderHeader()}
+                        <main class="flex-1 overflow-y-auto p-4 md:p-8">
+                            <div id="content-container">
+                                ${renderContent()}
+                            </div>
+                        </main>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSidebar() {
+            const navItems = [ 
+                { name: 'Chat (5.2)', page: 'Dashboard', icon: 'MessageSquare' }, 
+                { name: 'Overview (5.3)', page: 'Overview', icon: 'LayoutDashboard' },
+                { name: 'Knowledge (5.4)', page: 'Knowledge', icon: 'Server' }, 
+                { name: 'Processes (5.5)', page: 'Processes', icon: 'GitBranch' }, 
+                { name: 'Calendar / Triggers (5.6)', page: 'Calendar', icon: 'Calendar' },
+                { name: 'Relationships (5.7)', page: 'Relationships', icon: 'Users' },
+                { name: 'Rhythm (5.8)', page: 'Rhythm', icon: 'Zap' },
+                { name: 'Persona & Culture (5.9)', page: 'Persona', icon: 'Map' }, 
+                { name: 'Neg. Space / Guardrails (5.9.1)', page: 'NegativeSpace', icon: 'Shield' }, // New Dedicated Tab
+                { name: 'Tools (5.10)', page: 'Tools', icon: 'Settings' }, 
+            ];
+            
+            return `
+                <div id="sidebar" class="w-64 bg-white border-r shadow-lg flex flex-col">
+                    <div class="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+                        <h1 class="text-xl font-extrabold text-bdt-primary">BDT Platform</h1>
+                    </div>
+                    <nav class="flex flex-col p-4 space-y-1 flex-grow">
+                        ${navItems.map(item => `
+                            <button
+                                class="sidebar-item font-medium transition duration-150 ${appState.currentPage === item.page ? 'active' : 'text-gray-600 hover:text-gray-900'}"
+                                onclick="changePage('${item.page}')"
+                            >
+                                ${getIcon(item.icon, 5)}
+                                <span>${item.name}</span>
+                            </button>
+                        `).join('')}
+                    </nav>
+                    
+                    <div class="p-4 border-t border-gray-200">
+                        <button onclick="changePage('Integrations')" class="sidebar-item w-full text-sm">Integrations (Admin)</button>
+                        <button onclick="handleLogout()" class="sidebar-item w-full text-sm text-red-500 hover:text-red-700 hover:bg-red-50">Logout</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHeader() {
+            const activeData = getActivePersonaData();
+            const statusClass = activeData.twin_status === 'Ready' ? 'twin-status-ready' : 'twin-status-learning';
+            const statusTitle = `Status: ${activeData.twin_status}`;
+            
+            return `
+                <header class="bg-white shadow-md border-b h-16 px-6 flex items-center justify-between z-10">
+                    <h2 class="text-xl font-bold text-gray-800">Behavioral Digital Twin</h2>
+                    
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2 bg-gray-50 p-2 rounded-lg border border-gray-200">
+                            ${getIcon('Switches', 5)}
+                            <select id="persona-selector" onchange="switchPersona(this.value)" class="bg-gray-50 text-sm font-medium text-gray-700 focus:outline-none cursor-pointer">
+                                ${Object.keys(CLONE_DATA_MAP).map(id => `
+                                    <option value="${id}" ${appState.activePersonaId === id ? 'selected' : ''}>
+                                        ${id} (${CLONE_DATA_MAP[id].twin_type})
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+
+                        <div class="text-sm font-medium text-gray-700 hidden sm:block">
+                            Capability: <span class="text-bdt-primary font-bold">${activeData.capability_level}</span>
+                        </div>
+                         <span class="text-xs font-semibold px-3 py-1 rounded-full ${statusClass}" 
+                                title="Last Ingest: ${activeData.last_ingest}">
+                            ${statusTitle}
+                        </span>
+                    </div>
+                </header>
+            `;
+        }
+        
+        function renderContent() {
+            switch (appState.currentPage) {
+                case 'Dashboard':
+                    return renderChatPage(); 
+                case 'Overview':
+                    return renderOverviewPage();
+                case 'Knowledge':
+                    return renderKnowledgePage();
+                case 'Processes':
+                    return renderProcessesPage();
+                case 'Calendar':
+                    return renderCalendarPage();
+                case 'Relationships':
+                    return renderRelationshipsPage();
+                case 'Rhythm':
+                    return renderRhythmPage();
+                case 'Persona':
+                    return renderPersonaPage();
+                case 'NegativeSpace':
+                    return renderNegativeSpacePage(); // New Page
+                case 'Tools':
+                    return renderToolsPage();
+                case 'Integrations':
+                    return renderIntegrationsPage();
+                default:
+                    return `<div class="text-center p-10 text-gray-500">Page not found.</div>`;
+            }
+        }
+
+        // --- 5. Screen-by-Screen Design Implementation ---
+        
+        function renderChatPage() { // 5.2 My Twin - Chat
+            
+            return `
+                <div class="space-y-6 h-full flex flex-col">
+                    <div class="card p-4 border-l-4 border-bdt-primary shadow-lg">
+                        <p class="text-sm font-semibold text-bdt-primary flex items-center gap-2">${getIcon('Target', 5)} BDT Agent Orchestrator</p>
+                        <p class="text-sm text-gray-700">The Twin runs on a **Learn-First RAG** pipeline. Level 4 (Agentic) tasks require **Human-in-the-Loop (HILT)** confirmation before execution. (Currently viewing **${appState.activePersonaId}**)</p>
+                    </div>
+                    
+                    <div class="card p-0 flex flex-col flex-grow min-h-[500px]">
+                        <div id="chatHistory" class="flex-grow p-4 space-y-4 overflow-y-auto bg-gray-50">
+                            <!-- Chat messages go here -->
+                        </div>
+                        <div class="p-4 border-t border-gray-200 bg-white">
+                             <div class="flex space-x-2 mb-3 items-center flex-wrap gap-2">
+                                <span class="text-xs font-semibold text-gray-500">Filter Context:</span>
+                                
+                                <button onclick="showAlert('Filter: All Data (Email, Files, Chat, Rhythms, Processes)', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('Database', 4)} ALL DATA
+                                </button>
+
+                                <button onclick="showAlert('Filter: Email Only', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('Mail', 4)} Email
+                                </button>
+
+                                <button onclick="showAlert('Filter: Chat/Teams/Slack Only', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('MessageSquare', 4)} Chat
+                                </button>
+
+                                <button onclick="showAlert('Filter: Files/Documents Only', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('FileText', 4)} Files
+                                </button>
+                                
+                                <button onclick="showAlert('Filter: Processes/SOPs Only', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('GitBranch', 4)} Processes
+                                </button>
+                                
+                                <button onclick="showAlert('Filter: Rhythm/Temporal Only', 'info')" class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1">
+                                    ${getIcon('Zap', 4)} Rhythms
+                                </button>
+
+                            </div>
+                            <div class="flex space-x-3">
+                                <input type="text" id="userInput" placeholder="Ask your twin to find a document, detail a process, or delegate a task (e.g., 'Delegate drafting the vendor follow-up email')..." class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-bdt-primary">
+                                <button onclick="simulateQuery(true)" class="bg-bdt-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Ask BDT</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPersonaPage() { // 5.9 My Twin - Persona & Culture
+            const activeData = getActivePersonaData();
+            const ontologyList = Object.entries(activeData.ontology_mapping).map(([key, o]) => `
+                <div class="ontology-card p-4 card border-l-4 border-indigo-500 shadow-sm">
+                    <div class="flex justify-between items-center">
+                        <p class="font-extrabold text-xl text-gray-800">${key}</p>
+                        <span class="text-sm font-bold text-indigo-600">${o.value}/${o.max}</span>
+                    </div>
+                    <p class="text-sm text-gray-700 mt-2">${o.description}</p>
+                    <p class="text-xs font-medium text-bdt-primary mt-3">Adjustable Parameter: <span class="font-bold">${o.label}</span></p>
+                    <input type="range" min="0" max="100" value="${o.value}" 
+                           oninput="updateOntologyValue('${key}', this.value)" 
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-lg mt-2">
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Persona & Cultural Mapping (5.9) - BDT Tuning</h3>
+                    <div class="card p-6 border-l-4 border-bdt-primary">
+                        <h4 class="text-xl font-bold text-bdt-primary mb-4">Core Behavioral Attributes (Current: ${activeData.person_name})</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-gray-700">
+                            <div><p class="font-bold text-gray-800">Communication Style:</p>${activeData.commStyle}</div>
+                            <div><p class="font-bold text-gray-800">Decision-Making:</p>${activeData.decisionStyle || "Data-driven, context-specific."}</div>
+                            <div><p class="font-bold text-gray-800">Risk Tolerance:</p>${activeData.riskTolerance}</div>
+                        </div>
+                    </div>
+
+                    <h4 class="text-2xl font-bold text-bdt-primary mt-8 mb-4 border-b pb-2">Fourth Ontology Mapping (Post-Learning Grounding)</h4>
+                    <p class="text-gray-600">The core behavioral constraints learned from data. Adjust the parameters below to tune the Level 4 agent's operating boundaries.</p>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="card p-6 chart-placeholder">
+                            <canvas id="ontologyChart" class="w-full h-full"></canvas>
+                             <p class="text-xs text-gray-500 mt-2">Interactive: Current Behavioral Alignment Score: <span class="text-green-600 font-bold">94%</span></p>
+                        </div>
+                        <div class="space-y-4">
+                            ${ontologyList}
+                        </div>
+                    </div>
+                    
+                    <button onclick="changePage('NegativeSpace')" class="mt-4 text-sm font-semibold text-red-600 hover:underline flex items-center gap-2">
+                        ${getIcon('Shield', 5)} Review Negative Space / Agent Guardrails (Go to 5.9.1)
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderNegativeSpacePage() { // 5.9.1 New Dedicated Tab
+             const activeData = getActivePersonaData();
+             const negativeSpaceList = activeData.negative_space.map(n => `
+                <div class="card p-6 border-l-4 ${n.guardrail ? 'border-red-500 bg-red-50' : 'border-green-500 bg-green-50'} shadow-md">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-lg font-bold text-gray-800">${n.dimension} Boundary</h4>
+                        <span class="risk-badge ${n.risk === 'High' ? 'bg-red-500 text-white' : n.risk === 'Medium' ? 'bg-yellow-500 text-white' : 'bg-gray-400 text-white'}">${n.risk} Risk</span>
+                    </div>
+                    <p class="text-sm text-gray-700 italic">Pattern: "${n.pattern}"</p>
+                    <p class="text-xs text-gray-500 mt-2">Evidence: ${n.evidence}</p>
+
+                    <div class="flex items-center justify-between mt-4 border-t pt-3">
+                        <p class="font-bold text-sm">Set as Agent Guardrail:</p>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" value="" ${n.guardrail ? 'checked' : ''} class="sr-only peer" onclick="showAlert('Guardrail status for ${n.dimension} updated!', 'info')">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b flex items-center gap-2">${getIcon('Shield', 6)} Negative Space & Agent Guardrails (5.9.1)</h3>
+                    <p class="text-gray-700">Critical insights based on what the Twin **avoids or delegates**. These are the hard boundaries that should be enforced as Level 4 agent guardrails to prevent high-risk actions. (Current View: **${getActivePersonaData().person_name}**)</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        ${negativeSpaceList}
+                    </div>
+                    
+                    <div class="card p-6 border-l-4 border-indigo-500">
+                        <h4 class="text-xl font-bold text-bdt-primary mb-2">Audit Log & Traceability</h4>
+                        <p class="text-sm text-gray-600">All guardrail violations (attempted L4 actions blocked by a boundary) are immediately flagged and logged for human review and refinement.</p>
+                        <button onclick="showAlert('Mock: Opening Guardrail Violation Log.', 'error')" class="mt-3 text-sm font-semibold text-indigo-600 hover:underline">View Violation Audit</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- CHART JS IMPLEMENTATION ---
+
+        let ontologyChartInstance = null;
+        function updateOntologyChart() {
+            const ctx = document.getElementById('ontologyChart');
+            if (!ctx) return;
+
+            if (ontologyChartInstance) {
+                ontologyChartInstance.destroy();
+            }
+
+            const data = {
+                labels: Object.keys(appState.ontologyValues),
+                datasets: [{
+                    label: 'Learned Behavioral Profile',
+                    data: Object.values(appState.ontologyValues).map(o => o.value),
+                    fill: true,
+                    backgroundColor: 'rgba(30, 58, 138, 0.2)', // BDT Primary semi-transparent
+                    borderColor: '#1e3a8a',
+                    pointBackgroundColor: '#1e3a8a',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: '#1e3a8a'
+                }]
+            };
+
+            ontologyChartInstance = new Chart(ctx, {
+                type: 'radar',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    elements: {
+                        line: { borderWidth: 3 }
+                    },
+                    scales: {
+                        r: {
+                            angleLines: { display: false },
+                            suggestedMin: 0,
+                            suggestedMax: 100,
+                            pointLabels: {
+                                font: { size: 14, weight: 'bold' },
+                                color: '#374151'
+                            },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: 'Fourth Ontology Mapping (Behavioral DNA)', font: { size: 16 } }
+                    }
+                }
+            });
+        }
+
+        function updateOntologyValue(key, newValue) {
+            const numericValue = parseInt(newValue);
+            appState.ontologyValues[key].value = numericValue;
+            updateOntologyChart();
+            showAlert(`Tuning: ${key} parameter set to ${numericValue}. Agent boundary adjusted for ${appState.activePersonaId}.`, 'info');
+        }
+        
+        // Render functions for other pages (simplified/placeholder content)
+
+        function renderOverviewPage() { // 5.3 My Twin - Overview (Enhanced Placeholders)
+            const activeData = getActivePersonaData();
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Twin Overview & Health (5.3) - ${activeData.person_name}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="card p-5 border-l-4 border-bdt-primary shadow-lg">
+                            <p class="text-sm font-medium text-gray-500">Data Coverage</p>
+                            <p class="text-4xl font-extrabold text-bdt-primary mt-1">85%</p>
+                            <p class="text-xs text-gray-500">of last 12 months indexed.</p>
+                        </div>
+                        <div class="card p-5 border-l-4 border-green-500">
+                            <p class="text-sm font-medium text-gray-500">Core Process Coverage</p>
+                            <p class="text-4xl font-extrabold text-green-600 mt-1">80%</p>
+                            <p class="text-xs text-gray-500">Workflows captured (Target >80%).</p>
+                        </div>
+                        <div class="card p-5 border-l-4 border-cyan-500">
+                            <p class="text-sm font-medium text-gray-500">Query Latency (P95)</p>
+                            <p class="text-4xl font-extrabold text-cyan-600 mt-1">1.8s</p>
+                            <p class="text-xs text-gray-500">LlamaIndex RAG Pipeline performance.</p>
+                        </div>
+                         <div class="card p-5 border-l-4 border-red-500">
+                            <p class="text-sm font-medium text-gray-500">High Risk Guardrails</p>
+                            <p class="text-4xl font-extrabold text-red-600 mt-1">2</p>
+                            <p class="text-xs text-gray-500">Active boundaries enforced by Twin Engine.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="card p-6 chart-placeholder h-72">
+                             <canvas id="domainCoverageChart"></canvas>
+                             <p class="text-xs text-gray-500 mt-2">Placeholder: Data Coverage by Domain (Email: 40%, Files: 35%, Tickets: 25%)</p>
+                        </div>
+
+                        <div class="card p-6 chart-placeholder h-72">
+                            <p class="text-xl font-bold text-bdt-primary mb-2">Knowledge Domains</p>
+                             <p class="text-sm text-gray-500">Placeholder: Knowledge Depth vs. Decay Rate (Radar/Spider Chart)</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderKnowledgePage() { 
+            const activeData = getActivePersonaData();
+            const domainsList = activeData.knowledge_domains.map(d => `
+                <div class="p-4 card border-l-4 border-blue-500">
+                    <p class="font-bold text-lg text-gray-800">${d.name}</p>
+                    <p class="text-sm text-gray-700">Depth: ${d.depth} | Uniqueness: ${d.unique} | Last Activity: ${d.activity}</p>
+                    <p class="text-xs text-red-600 mt-1">Transfer Difficulty: ${d.transfer}</p>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Knowledge Domains & Decay (5.4) - ${activeData.person_name}</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        ${domainsList}
+                    </div>
+
+                    <div class="card p-6 chart-placeholder h-72">
+                        ${getIcon('Database', 8)}
+                        
+                        <p>Placeholder: Unique Knowledge Identification (High evidence in one Twin only)</p>
+                        <p class="text-xs text-gray-500 mt-2">Required by: 5.4.2 Unique knowledge identification.</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderProcessesPage() { 
+            const activeData = getActivePersonaData();
+            const activeProcesses = activeData.processes.map(p => `
+                <div class="p-6 card border-l-4 border-bdt-primary shadow-lg hover:shadow-xl transition">
+                    <h4 class="text-xl font-bold text-gray-800 mb-2">${p.name}</h4>
+                    <p class="text-sm font-semibold text-gray-700 mb-1">Trigger: <span class="font-normal">${p.trigger}</span></p>
+                    <div class="flex justify-between items-center mt-3">
+                        <p class="text-sm font-semibold text-gray-700">Confidence: <span class="font-normal text-bdt-primary">${p.confidence}%</span></p>
+                        <span class="text-xs text-gray-500">${p.duration}</span>
+                    </div>
+                    <div class="confidence-bar-container">
+                        <div class="confidence-bar" style="width: ${p.confidence}%;"></div>
+                    </div>
+                    
+                    <p class="text-sm font-bold text-red-600 mt-4">Behavioral Insight:</p>
+                    <p class="text-xs text-red-600">${p.delegation}</p>
+                    <button onclick="showAlert('Mock: Viewing Decision Tree & Steps for ${p.name}.', 'info')" class="mt-4 text-xs text-indigo-600 font-medium hover:underline flex items-center gap-1">${getIcon('GitBranch', 4)} View Decision Tree</button>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Inferred Workflows & Decision Logic (5.5) - ${activeData.person_name}</h3>
+                    <div class="card p-6 chart-placeholder h-72">
+                        ${getIcon('GitBranch', 8)}
+                        [Image of Process Decision Tree Diagram]
+                        <p>Placeholder: Decision Tree Diagram (Visualization of conditional logic mined from data)</p>
+                        <p class="text-xs text-gray-500 mt-2">Required by: 4.4.1 Decision tree diagrams for complex processes.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        ${activeProcesses}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderCalendarPage() {
+            const activeData = getActivePersonaData();
+            return `<div class="space-y-8"><h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Calendar, Event Triggers, and Response Patterns (5.6) - ${activeData.person_name}</h3><div class="grid grid-cols-2 gap-6"><div class="card p-6 chart-placeholder h-72"><p>Placeholder: Temporal Pattern Analysis (Daily productivity rhythm)</p></div><div class="card p-6 chart-placeholder h-72"><p>Placeholder: Response Time Distribution by Channel</p></div></div><h4 class="text-xl font-bold text-bdt-primary mt-4 mb-4 border-b pb-2">Inferred Event Classification</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div class="p-4 bg-gray-100 rounded-lg border-l-4 border-indigo-400"><p class="font-bold text-sm">Triggered (Reactive)</p><p class="text-xs text-gray-600">Source: Customer X Email (topic Y)</p></div><div class="p-4 bg-gray-100 rounded-lg border-l-4 border-indigo-400"><p class="font-bold text-sm">Habitual</p><p class="text-xs text-gray-600">Source: Weekly Infra Report (Monday Morning)</p></div><div class="p-4 bg-gray-100 rounded-lg border-l-4 border-indigo-400"><p class="font-bold text-sm">Proactive vs. Reactive Ratio</p><p class="text-xs text-gray-600">Inferred: 40% Proactive / 60% Reactive behavior.</p></div></div></div>`;
+        }
+
+        function renderRelationshipsPage() { 
+            const activeData = getActivePersonaData();
+            const relationshipsList = activeData.relationships.map(r => `
+                <div class="p-4 card border-l-4 border-cyan-500">
+                    <p class="font-bold text-lg text-gray-800">${r.person}</p>
+                    <p class="text-sm text-gray-700">Role: ${r.role} | Volume: ${r.volume} interactions</p>
+                    <p class="text-xs text-indigo-600 mt-1">Influence: ${r.influence} | Topics: ${r.topics.join(', ')}</p>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Relationship & Influence Networks (5.7) - ${activeData.person_name}</h3>
+                    <p class="text-gray-700">Visualization of the person’s influence network, knowledge routing, and collaboration preferences.</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        ${relationshipsList}
+                    </div>
+
+                    <div class="card p-6 chart-placeholder h-72">${getIcon('Users', 8)}
+                        
+                        <p>Placeholder: Influence Network Graph (Nodes sized by volume, edges by topic overlap)</p>
+                        <p class="text-xs text-gray-500 mt-2">Required by: 5.1 Relationship and Influence Networks.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRhythmPage() { 
+            const activeData = getActivePersonaData();
+            return `<div class="space-y-8"><h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Work Rhythm & Temporal Intelligence (5.8) - ${activeData.person_name}</h3><div class="grid grid-cols-2 gap-6"><div class="card p-6 chart-placeholder h-72"><p>Placeholder: Weekly Activity Heatmap</p><p class="text-xs text-gray-500 mt-2">Peak activity: Tuesday - Thursday.</p></div><div class="card p-6 chart-placeholder h-72"><p>Placeholder: Deadline Behavior Clustering</p><p class="text-xs text-gray-500 mt-2">30% of major documents finalized within 4 hours of deadline.</p></div></div><div class="card p-6 border-l-4 border-bdt-primary"><h4 class="text-xl font-bold text-gray-800 mb-2">Temporal Priority Constraint</h4><p class="text-sm text-gray-700">The Twin Engine uses a 'Morning Priority' constraint: all 8-10 AM tasks are given highest time weighting in the decision logic, reflecting the fastest historical response time.</p></div></div>`;
+        }
+
+        function renderToolsPage() { 
+            const activeData = getActivePersonaData();
+            const toolsList = activeData.tools.map(t => `
+                <div class="p-4 card border-l-4 border-indigo-500">
+                    <p class="font-bold text-lg text-gray-800">${t.name}</p>
+                    <p class="text-sm text-gray-700">Category: ${t.category} | Usage: ${t.usage}</p>
+                    <p class="text-xs font-semibold text-bdt-primary mt-1">Proficiency: ${t.proficiency} | Candidate: ${t.candidate}</p>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Tools & Systems Usage Analytics (5.10) - ${activeData.person_name}</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        ${toolsList}
+                    </div>
+
+                    <div class="card p-6 chart-placeholder h-72">
+                        ${getIcon('Settings', 8)}
+                        
+                        <p>Placeholder: Tool-to-Process Mapping Matrix</p>
+                        <p class="text-xs text-gray-500 mt-2">Identifies tools that are high-usage but low-proficiency for the rest of the team.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderIntegrationsPage() { // 6.3 Settings - Admin
+            
+            // --- Comprehensive Integrations List ---
+            const integrations = [ 
+                { name: "Outlook Mail", system: "Microsoft 365", status: "Connected", mode: "Continuous" },
+                { name: "OneDrive / SharePoint", system: "Microsoft 365", status: "Connected", mode: "Scheduled" },
+                { name: "Teams (Chat/Files)", system: "Microsoft 365", status: "Connected", mode: "Continuous" },
+                { name: "Autotask (Ticketing)", system: "Legacy App", status: "Connected", mode: "Scheduled" },
+                { name: "Slack", system: "External Chat", status: "Pending Auth", mode: "One-Time" },
+                { name: "Google Mail", system: "Google Workspace", status: "Error", mode: "Continuous" },
+                { name: "Google Drive", system: "Google Workspace", status: "Error", mode: "Continuous" },
+                { name: "Local/Network Drive", system: "File System", status: "Connected", mode: "Scheduled" },
+            ];
+            
+            const integrationCards = integrations.map(i => `
+                    <div class="card p-5 border-l-4 ${i.status === 'Connected' ? 'border-green-600' : i.status === 'Error' ? 'border-red-600' : 'border-yellow-600'} flex flex-col justify-between hover:shadow-lg transition">
+                        <div class="flex justify-between items-start mb-3">
+                            <h4 class="text-lg font-bold text-gray-800 flex items-center gap-2">${getIcon('Briefcase', 5)} ${i.name}</h4>
+                            ${getStatusBadge(i.status)}
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-600 mb-2">System Type: <span class="font-semibold">${i.system}</span></p>
+                            <p class="text-sm text-gray-600 mb-3">Ingestion Mode: <span class="font-semibold">${i.mode}</span></p>
+                            
+                            <button 
+                                onclick="handleIntegrationAction('${i.name}', '${i.status}')"
+                                class="w-full py-2 px-4 rounded-lg text-sm font-medium transition duration-150 h-in-loop-button
+                                    ${i.status === 'Connected' ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-bdt-primary text-white hover:bg-indigo-700'}"
+                            >
+                                ${i.status === 'Connected' ? 'Disconnect / Pause Sync' : 'Connect Now'}
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+
+            return `
+                <div class="space-y-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">Data Sources & Integrations Management (6.3)</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        ${integrationCards}
+                    </div>
+                    <div class="card p-6 border-l-4 border-gray-400">
+                        <h4 class="text-xl font-bold text-gray-800 mb-2">Audit & Compliance Controls</h4>
+                        <p class="text-sm text-gray-600">Ensures all data access and agent actions are fully auditable as required by the Security and Compliance section.</p>
+                        <button onclick="showAlert('Mock: Opening full data use audit log.', 'info')" class="mt-2 text-sm font-semibold text-indigo-600 hover:underline">View Complete Data Use Audit Log</button>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        // --- Event Handlers & Chat Logic ---
+        
+        function handleLogin(event) {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorElement = document.getElementById('login-error');
+
+            if (username === appState.USER_EMAIL && password === appState.USER_PASS) {
+                appState.isLoggedIn = true;
+                appState.currentPage = 'Consent'; 
+                renderApp();
+                showAlert('Login successful! Please confirm BDT Consent Policy.', 'success');
+            } else {
+                errorElement.innerText = 'Invalid username or password.';
+                errorElement.style.display = 'block';
+                showAlert('Login failed. Check credentials.', 'error');
+            }
+        }
+
+        function handleConsent() {
+            const consentChecked = document.getElementById('consent-checkbox').checked;
+            if (consentChecked) {
+                appState.hasConsented = true;
+                appState.currentPage = 'Dashboard';
+                renderApp();
+                showAlert('Consent confirmed. Initiating data ingestion.', 'success');
+                // Auto-start chat with the first query after consent
+                setTimeout(() => simulateQuery(false), 500); 
+                // Render chart after DOM is ready
+                if (appState.currentPage === 'Persona') {
+                     setTimeout(updateOntologyChart, 100);
+                }
+            } else {
+                showAlert('You must confirm consent to proceed with the BDT platform.', 'error');
+            }
+        }
+
+        function handleLogout() {
+            appState.isLoggedIn = false;
+            appState.hasConsented = false;
+            appState.currentPage = 'Dashboard';
+            appState.currentChatIndex = -1;
+            // Destroy chart instance
+            if (ontologyChartInstance) {
+                ontologyChartInstance.destroy();
+                ontologyChartInstance = null;
+            }
+            renderApp();
+            showAlert('Logged out successfully.', 'info');
+        }
+
+        function changePage(pageName) {
+            showLoadingIndicator(true, `Loading ${pageName} view...`);
+            setTimeout(() => {
+                appState.currentPage = pageName;
+                renderApp();
+                showLoadingIndicator(false);
+                if (pageName === 'Persona') {
+                    // Ensure chart renders when navigating to the Persona page
+                    setTimeout(updateOntologyChart, 100);
+                }
+            }, 300);
+        }
+        
+        function handleIntegrationAction(name, status) {
+            if (status === 'Connected') {
+                showAlert(`Mock: Paused sync for ${name}. Ingestion Mode set to 'One-Time'.`, 'error');
+            } else {
+                showAlert(`Mock: Initiated OAuth flow for ${name}. Connection successful! Mode: Continuous Ingestion.`, 'success');
+            }
+            setTimeout(renderApp, 500);
+        }
+
+        function handleHILTAction(actionType, task) {
+            const chatHistory = document.getElementById('chatHistory');
+            
+            // FIX: Use lastElementChild to ensure we get the DOM element node, not a text node, 
+            // and then query the controls within that element.
+            const lastMessageElement = chatHistory ? chatHistory.lastElementChild : null;
+
+            if (actionType === 'Approve') {
+                showAlert(`L4 Agent Action Approved: ${task}. Email sent via MS Graph API (mock).`, 'success');
+                
+                if (lastMessageElement) {
+                    // Find the HILT controls within the last message bubble
+                    const hiltControls = lastMessageElement.querySelector('.h-in-loop-controls');
+                    if (hiltControls) {
+                        hiltControls.innerHTML = `<span class="font-bold text-green-700 flex items-center gap-1">${getIcon('CheckCircle', 5)} Action Approved and Executed.</span>`;
+                    }
+                }
+            } else if (actionType === 'Edit') {
+                showAlert(`L4 Agent Action Sent to Editor: Draft for ${task} opened for manual changes.`, 'info');
+            } else if (actionType === 'Cancel') {
+                showAlert(`L4 Agent Action Blocked/Cancelled: ${task} terminated. Guardrail violation logged.`, 'error');
+                
+                if (lastMessageElement) {
+                    const hiltControls = lastMessageElement.querySelector('.h-in-loop-controls');
+                    if (hiltControls) {
+                        hiltControls.innerHTML = `<span class="font-bold text-red-700 flex items-center gap-1">${getIcon('AlertTriangle', 5)} Action Cancelled by User (HILT Override).</span>`;
+                    }
+                }
+            }
+        }
+
+        function createMessageElement(isUser, contentHTML) {
+            return `
+                <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-3xl p-4 rounded-xl shadow-lg ${isUser ? 'chat-message-user text-white' : 'chat-message-assistant text-gray-800'}" style="width: fit-content;">
+                        ${contentHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        function simulateQuery(userInitiated) {
+            const chatHistory = document.getElementById('chatHistory');
+            const userInput = document.getElementById('userInput');
+            
+            if (userInitiated) {
+                // For a real prototype, you would process userInput. For the demo, we advance the query index.
+                userInput.value = '';
+            }
+
+            // Use the active persona data for simulation
+            const personaId = appState.activePersonaId; 
+            const personaData = CLONE_DATA_MAP[personaId];
+
+            if (!personaData.sample_queries) {
+                 chatHistory.innerHTML += createMessageElement(false, `<p>No sample queries are defined for the selected persona (${appState.activePersonaId}). Switch back to Davinci to see the demo.</p>`);
+                 chatHistory.scrollTop = chatHistory.scrollHeight;
+                 return;
+            }
+
+            appState.currentChatIndex = (appState.currentChatIndex + 1) % personaData.sample_queries.length;
+            const queryData = personaData.sample_queries[appState.currentChatIndex];
+
+            // 1. User Message
+            chatHistory.innerHTML += createMessageElement(true, `<p>${queryData.question}</p>`);
+            
+            // 2. BDT Response
+            let hiltControls = '';
+            if (queryData.is_agent_action) {
+                // Implement HILT (Human-in-the-Loop) controls for Level 4 actions
+                hiltControls = `
+                    <div class="h-in-loop-controls border-t pt-3 mt-3 flex space-x-3">
+                        <button onclick="handleHILTAction('Approve', 'Vendor Follow-up Draft')" class="bg-green-500 text-white px-4 py-2 rounded-lg font-semibold h-in-loop-button hover:bg-green-600 flex items-center gap-1">${getIcon('CheckCircle', 4)} Approve & Send</button>
+                        <button onclick="handleHILTAction('Edit', 'Vendor Follow-up Draft')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg font-semibold h-in-loop-button hover:bg-indigo-600 flex items-center gap-1">${getIcon('Settings', 4)} Edit Draft</button>
+                        <button onclick="handleHILTAction('Cancel', 'Vendor Follow-up Draft')" class="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold h-in-loop-button hover:bg-red-600 flex items-center gap-1">${getIcon('Shield', 4)} Cancel/Override</button>
+                    </div>
+                    <p class="text-red-600 text-xs mt-2 font-bold flex items-center gap-1">${getIcon('AlertTriangle', 4)} HILT Required: Action requires human confirmation due to Level 4 capability.</p>
+                `;
+            }
+
+            const cloneResponseHTML = `
+                <div class="font-bold text-lg mb-2 flex items-center">
+                    ${getIcon('Server', 5)}
+                    <span class="ml-2 text-bdt-primary">BDT Engine Response</span>
+                    <span class="ml-auto text-sm font-semibold px-2 py-1 rounded-full ${queryData.confidence.color}">
+                        ${queryData.confidence.level} (${queryData.confidence.score}%)
+                    </span>
+                </div>
+                <p class="mb-3">${queryData.answer}</p>
+                
+                <div class="space-y-2 mb-4">
+                    ${queryData.details.map(item => `<li class="border-l-4 border-gray-300 pl-3 text-sm">${item.text}</li>`).join('')}
+                </div>
+                
+                <div class="border-t pt-2 mt-2 text-xs text-gray-500">
+                    <p class="font-semibold mb-1">Reasoning Summary: <span class="text-gray-700">${queryData.reasoning}</span></p>
+                    
+                    <button onclick="toggleEvidence(this)" class="text-indigo-600 hover:underline flex items-center gap-1 mt-2">
+                        ${getIcon('Zap', 4)} Why this answer? (Expand Detailed Evidence)
+                    </button>
+                    
+                    <div class="evidence-detail p-3 mt-2 rounded-lg bg-gray-100 border-l-4 border-cyan-500" style="display:none;">
+                        <p class="font-bold text-cyan-700 mb-1">Retrieval-Augmented Generation (RAG) Provenance:</p>
+                        ${queryData.details.map(item => `
+                            <div class="mt-2">
+                                <p class="font-semibold text-gray-700 flex justify-between items-center">${item.source}:
+                                    <button onclick="showAlert('Mock: Opening document in source application.', 'info')" class="text-xs text-green-700 hover:underline flex items-center">Open Source</button>
+                                </p>
+                                <p class="text-gray-600">${item.text.replace(/\*\*/g, '').substring(0, 100)}...</p>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="flex items-center space-x-3 mt-3">
+                        <span class="font-semibold">Feedback:</span>
+                        <button onclick="showAlert('Feedback: Helpful', 'success')" class="text-green-600 hover:text-green-800">Helpful</button>
+                        <button onclick="showAlert('Feedback: Wrong', 'error')" class="text-red-600 hover:text-red-800">Wrong</button>
+                    </div>
+                </div>
+                ${hiltControls}
+            `;
+            chatHistory.innerHTML += createMessageElement(false, cloneResponseHTML);
+
+            // Scroll to the bottom
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+        
+        function toggleEvidence(element) {
+            const detail = element.parentNode.querySelector('.evidence-detail');
+            if (detail) {
+                detail.style.display = detail.style.display === 'block' ? 'none' : 'block';
+            }
+        }
+
+
+        // --- Initial Load ---
+        window.onload = () => {
+            // Sample data that was previously defined separately is integrated here for initialization compatibility.
+            CLONE_DATA_MAP["Davinci (The Renaissance Man)"].sample_queries = [ 
+                {
+                    question: "Delegate drafting and sending the concise follow-up email to Microsoft regarding the delayed hardware shipment.",
+                    answer: "Task delegated to Level 4 Agent: **Vendor Follow-up Draft** (Awaiting HILT Approval). The BDT has generated the draft below, using the modeled *Concise/Direct* communication style and prioritizing the urgency based on the *Temporal Intelligence* rhythm profile.",
+                    details: [
+                        { text: "**Draft Output (Action):** 'Microsoft Team: Ship date for PO 4455 is now T+3 days past schedule. Please provide specific, revised ETA and explanation by EOD today. This will impact Client Y’s deployment schedule. Employee Twin.'", source: "A.4 Culture Template" },
+                        { text: "**Risk-Adaptive Verification:** Passed. Contains no financial authorization and aligns with **Low Technical Risk** profile.", source: "Trust & Verification Layer" },
+                        { text: "**Action:** Draft saved to Outlook Drafts. **Requires Human-in-the-Loop approval before sending.**", source: "System Log" }
+                    ],
+                    confidence: { score: 95, level: "Verified", color: "confidence-verified" },
+                    reasoning: "The model used the Persona's 'Concise' attribute and the 'Last-minute' deadline pattern to prioritize urgency.",
+                    is_agent_action: true // Flag for HILT controls
+                },
+                {
+                    question: "Why did Employee Twin reject the recent proposal for the open-source firewall deployment?",
+                    answer: "The BDT predicts rejection based on the Behavioral Twin's risk profile and negative space analysis, aligning with the **Fear Ontology** dimension.",
+                    details: [
+                        { text: "**Decision:** REJECTED. Reasoning: The proposal uses an open-source solution that lacks enterprise support and a clear vendor liability path.", source: "A.3 Decision Logic Mining Template" },
+                        { text: "**Evidence (Negative Space):** Logs show zero instances of the adoption or promotion of open-source network infrastructure over the last 3 years.", source: "5.2 Negative Space Analysis" },
+                    ],
+                    confidence: { score: 92, level: "High", color: "confidence-high" },
+                    reasoning: "A strong pattern of risk aversion was detected in document decisions.",
+                    is_agent_action: false
+                }
+            ];
+            
+            // Adding placeholder logic to prevent errors if switching away from Davinci (who holds the sample queries)
+            CLONE_DATA_MAP["Infra Triage Team"].sample_queries = [
+                {
+                    question: "How does the Infra Triage Team typically handle a Tier-1 alert?",
+                    answer: "The Infra Triage Team follows the **P1 Server Outage Resolution SOP** (Process Adherence: 95%). Their behavioral twin prioritizes rapid escalation (Escalation Speed: 70%) to minimize downtime.",
+                    details: [{ text: "Process documented in sharepoint/runbooks/SOP_P1_ServerOutage.pdf", source: "Process Map" }],
+                    confidence: { score: 90, level: "Verified", color: "confidence-verified" },
+                    reasoning: "High Process Adherence and rapid escalation preference is modeled from group communication logs.",
+                    is_agent_action: false
+                }
+            ];
+            
+            renderApp();
+        };
+
+    </script>
+</head>
+<body class="bg-gray-50">
+    <div id="app">
+        <!-- Application content rendered here -->
+    </div>
+</body>
+</html>
