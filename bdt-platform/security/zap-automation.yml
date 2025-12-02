@@ -1,0 +1,229 @@
+# BDT Platform Security Scanning Configuration
+# OWASP ZAP automation framework configuration
+
+---
+env:
+  contexts:
+    - name: "BDT Platform"
+      urls:
+        - "http://localhost:8000"
+        - "http://localhost:8001"
+        - "http://localhost:8002"
+        - "http://localhost:8003"
+        - "http://localhost:8004"
+      includePaths:
+        - "http://localhost:8000/api/.*"
+        - "http://localhost:8001/api/.*"
+        - "http://localhost:8002/api/.*"
+        - "http://localhost:8003/api/.*"
+        - "http://localhost:8004/api/.*"
+      excludePaths:
+        - ".*\\.js"
+        - ".*\\.css"
+        - ".*\\.png"
+        - ".*\\.jpeg"
+        - ".*\\.jpg"
+        - ".*\\.gif"
+        - ".*\\.woff.*"
+        - ".*\\.ttf"
+        - ".*\\.ico"
+      authentication:
+        method: "json"
+        parameters:
+          loginUrl: "http://localhost:8005/api/v1/auth/login"
+          loginRequestData: '{"username":"{%username%}","password":"{%password%}"}'
+          loginPageUrl: "http://localhost:3000/login"
+        verification:
+          method: "response"
+          loggedOutRegex: "\\Qlogin\\E"
+          loggedInRegex: "\\Qaccess_token\\E"
+      sessionManagement:
+        method: "cookie"
+        parameters: {}
+      technology:
+        include:
+          - "Python"
+          - "PostgreSQL"
+          - "Redis"
+          - "JavaScript"
+      users:
+        - name: "test_user"
+          credentials:
+            username: "test_user"
+            password: "TestPassword123!"
+  
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      scanOnlyInScope: true
+      maxBodySizeInBytesToScan: 10000
+      enableTags: false
+  
+  - type: spider
+    parameters:
+      maxDuration: 10
+      maxDepth: 10
+      maxChildren: 20
+      acceptCookies: true
+      handleODataParametersVisited: true
+      handleParameters: "USE_ALL"
+      maxParseSizeBytes: 5000000
+      parseComments: true
+      parseGit: false
+      parseRobotsTxt: true
+      parseSitemapXml: true
+      parseSVNEntries: false
+      postForm: true
+      processForm: true
+      requestWaitTime: 200
+      sendRefererHeader: true
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+  
+  - type: activeScan
+    parameters:
+      maxRuleDurationInMins: 5
+      maxScanDurationInMins: 60
+      addQueryParam: false
+      defaultPolicy: "Default Policy"
+      delayInMs: 0
+      handleAntiCSRFTokens: true
+      injectPluginIdInHeader: false
+      scanHeadersAllRequests: true
+      threadPerHost: 2
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+      
+      # Custom scan policies
+      policyDefinition:
+        defaultStrength: "medium"
+        defaultThreshold: "medium"
+        rules:
+          # SQL Injection
+          - id: 40018
+            name: "SQL Injection"
+            threshold: "low"
+            strength: "high"
+          
+          # Cross Site Scripting
+          - id: 40012
+            name: "Cross Site Scripting (Reflected)"
+            threshold: "low"
+            strength: "high"
+          
+          - id: 40014
+            name: "Cross Site Scripting (Persistent)"
+            threshold: "low"
+            strength: "high"
+          
+          # Authentication
+          - id: 10011
+            name: "Cookie Without Secure Flag"
+            threshold: "medium"
+            strength: "medium"
+          
+          - id: 10015
+            name: "Incomplete or No Cache-control and Pragma HTTP Header Set"
+            threshold: "medium"
+            strength: "medium"
+          
+          # CSRF
+          - id: 40013
+            name: "Session Fixation"
+            threshold: "medium"
+            strength: "medium"
+          
+          # Information Disclosure
+          - id: 10021
+            name: "X-Content-Type-Options Header Missing"
+            threshold: "medium"
+            strength: "medium"
+          
+          - id: 10023
+            name: "Information Disclosure - Debug Error Messages"
+            threshold: "low"
+            strength: "high"
+          
+          # Path Traversal
+          - id: 6
+            name: "Path Traversal"
+            threshold: "low"
+            strength: "high"
+          
+          # Command Injection
+          - id: 90020
+            name: "Remote OS Command Injection"
+            threshold: "low"
+            strength: "high"
+  
+  - type: report
+    parameters:
+      template: "traditional-html"
+      reportDir: "/reports"
+      reportFile: "bdt_security_scan"
+      reportTitle: "BDT Platform Security Scan Report"
+      reportDescription: "Automated security scan of BDT platform"
+      displayReport: false
+    risks:
+      - high
+      - medium
+      - low
+      - informational
+    confidences:
+      - high
+      - medium
+      - low
+      - falsepositive
+
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/reports"
+      reportFile: "bdt_security_scan"
+      reportTitle: "BDT Platform Security Scan JSON"
+      reportDescription: "JSON format for CI/CD integration"
+    risks:
+      - high
+      - medium
+      - low
+    confidences:
+      - high
+      - medium
+      - low
+
+  # Custom alert filters
+  - type: alertFilter
+    parameters:
+      deleteGlobalAlerts: true
+    rules:
+      # Remove false positives
+      - ruleId: 10015  # Incomplete Cache-control
+        alertName: "Incomplete or No Cache-control and Pragma HTTP Header Set"
+        url: ".*\\.(js|css|png|jpg|jpeg|gif|ico|woff|woff2|ttf)"
+        action: "delete"
+      
+      - ruleId: 10021  # Missing X-Content-Type-Options
+        url: ".*\\.(js|css|png|jpg|jpeg|gif|ico|woff|woff2|ttf)"
+        action: "delete"
+      
+      # Change risk level for specific alerts
+      - ruleId: 10054  # Cookie without SameSite
+        newRisk: "medium"
+      
+      - ruleId: 10038  # Content Security Policy
+        newRisk: "high"
+
+  # Generate summary
+  - type: summary
+    parameters:
+      format: "short"
+      summaryFile: "/reports/summary.txt"

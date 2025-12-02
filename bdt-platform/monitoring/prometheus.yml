@@ -1,0 +1,231 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'bdt-production'
+    environment: 'prod'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules files
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Phase 5 - Orchestration Service
+  - job_name: 'orchestration-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['orchestration-service:8000']
+        labels:
+          service: 'orchestration'
+          phase: '5'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'orchestration-primary'
+
+  # Phase 5 - Security Service
+  - job_name: 'security-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['security-service:8005']
+        labels:
+          service: 'security'
+          phase: '5'
+
+  # Phase 5 - Monitoring Service
+  - job_name: 'monitoring-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['monitoring-service:9090']
+        labels:
+          service: 'monitoring'
+          phase: '5'
+
+  # Phase 1 - Ingestion Service
+  - job_name: 'ingestion-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['ingestion-service:8001']
+        labels:
+          service: 'ingestion'
+          phase: '1'
+
+  # Phase 2 - Processing Service
+  - job_name: 'processing-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['processing-service:8002']
+        labels:
+          service: 'processing'
+          phase: '2'
+
+  # Phase 3 - Analysis Service
+  - job_name: 'analysis-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['analysis-service:8003']
+        labels:
+          service: 'analysis'
+          phase: '3'
+
+  # Phase 4 - UI Backend
+  - job_name: 'ui-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['ui-backend:8004']
+        labels:
+          service: 'ui-backend'
+          phase: '4'
+
+  # Infrastructure - PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          type: 'database'
+
+  # Infrastructure - Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+          type: 'cache'
+
+  # Infrastructure - RabbitMQ
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          type: 'message-queue'
+
+  # Infrastructure - Kong API Gateway
+  - job_name: 'kong'
+    static_configs:
+      - targets: ['kong:8001/metrics']
+        labels:
+          service: 'kong'
+          type: 'api-gateway'
+
+  # Infrastructure - Nginx
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+        labels:
+          service: 'nginx'
+          type: 'load-balancer'
+
+  # Node Exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          type: 'system'
+
+  # Kubernetes metrics (if deployed on K8s)
+  - job_name: 'kubernetes-apiservers'
+    kubernetes_sd_configs:
+      - role: endpoints
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+
+  # Kubernetes nodes
+  - job_name: 'kubernetes-nodes'
+    kubernetes_sd_configs:
+      - role: node
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+
+  # Kubernetes pods
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  # Blackbox exporter for endpoint monitoring
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://orchestration-service:8000/
+        - http://security-service:8005/
+        - http://ingestion-service:8001/
+        - http://processing-service:8002/
+        - http://analysis-service:8003/
+        - http://ui-backend:8004/
+        - http://ui-frontend:3000/
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+# Remote write configuration (optional)
+# remote_write:
+#   - url: "https://prometheus-remote-write.example.com/api/v1/write"
+#     basic_auth:
+#       username: 'username'
+#       password: 'password'
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'go_.*'
+#         action: drop
+
+# Remote read configuration (optional)
+# remote_read:
+#   - url: "https://prometheus-remote-read.example.com/api/v1/read"
+#     basic_auth:
+#       username: 'username'
+#       password: 'password'

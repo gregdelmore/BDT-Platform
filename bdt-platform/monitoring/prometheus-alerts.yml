@@ -1,0 +1,360 @@
+groups:
+  # System Alerts
+  - name: system_alerts
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: system_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage detected on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% (threshold: 80%)"
+
+      - alert: CriticalCPUUsage
+        expr: system_cpu_usage_percent > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% (threshold: 95%)"
+
+      - alert: HighMemoryUsage
+        expr: system_memory_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage detected on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% (threshold: 80%)"
+
+      - alert: CriticalMemoryUsage
+        expr: system_memory_usage_percent > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% (threshold: 95%)"
+
+      - alert: HighDiskUsage
+        expr: system_disk_usage_percent > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High disk usage detected on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% (threshold: 85%)"
+
+      - alert: CriticalDiskUsage
+        expr: system_disk_usage_percent > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical disk usage on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% (threshold: 95%)"
+
+  # Service Health Alerts
+  - name: service_health_alerts
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: service_health_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "Service {{ $labels.service }} has been unhealthy for more than 2 minutes"
+
+      - alert: ServiceDegraded
+        expr: service_response_time_ms > 2000
+        for: 5m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "Service {{ $labels.service }} is degraded"
+          description: "Response time for {{ $labels.service }} is {{ $value }}ms (threshold: 2000ms)"
+
+  # HTTP Performance Alerts
+  - name: http_performance_alerts
+    interval: 30s
+    rules:
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API response time (p95)"
+          description: "95th percentile response time is {{ $value }}s (threshold: 2s)"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: CriticalErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+  # Database Alerts
+  - name: database_alerts
+    interval: 30s
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of connections are in use"
+
+      - alert: DatabaseSlowQueries
+        expr: rate(pg_stat_statements_mean_exec_time[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database queries are slow"
+          description: "Mean query execution time is {{ $value }}ms"
+
+      - alert: DatabaseDeadlocks
+        expr: increase(pg_stat_database_deadlocks[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database deadlocks detected"
+          description: "{{ $value }} deadlocks in the last 5 minutes"
+
+  # Ingestion Alerts
+  - name: ingestion_alerts
+    interval: 30s
+    rules:
+      - alert: IngestionQueueBacklog
+        expr: ingestion_queue_size > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: ingestion
+        annotations:
+          summary: "Ingestion queue backlog detected"
+          description: "Queue size is {{ $value }} documents (threshold: 1000)"
+
+      - alert: IngestionRateLow
+        expr: rate(ingestion_documents_processed[5m]) < 10
+        for: 15m
+        labels:
+          severity: warning
+          component: ingestion
+        annotations:
+          summary: "Ingestion rate is too low"
+          description: "Processing {{ $value }} documents per second (expected: >10)"
+
+      - alert: IngestionFailureRate
+        expr: rate(ingestion_documents_failed[5m]) / rate(ingestion_documents_processed[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: ingestion
+        annotations:
+          summary: "High ingestion failure rate"
+          description: "{{ $value | humanizePercentage }} of documents are failing"
+
+  # Business Logic Alerts
+  - name: business_alerts
+    interval: 30s
+    rules:
+      - alert: LowQueryConfidence
+        expr: avg(query_confidence_score) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: analysis
+        annotations:
+          summary: "Low average query confidence"
+          description: "Average confidence score is {{ $value }} (threshold: 0.5)"
+
+      - alert: HighHILTPendingActions
+        expr: count(hilt_actions{status="pending"}) > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: hilt
+        annotations:
+          summary: "Too many pending HILT actions"
+          description: "{{ $value }} actions are pending approval"
+
+      - alert: PersonaCapabilityDegraded
+        expr: persona_capability_level < persona_capability_level offset 1h
+        for: 5m
+        labels:
+          severity: warning
+          component: persona
+        annotations:
+          summary: "Persona capability degraded"
+          description: "Persona {{ $labels.persona_id }} capability decreased from L{{ $value }}"
+
+  # Security Alerts
+  - name: security_alerts
+    interval: 30s
+    rules:
+      - alert: SuspiciousLoginActivity
+        expr: rate(failed_login_attempts[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Suspicious login activity detected"
+          description: "{{ $value }} failed login attempts in 5 minutes from {{ $labels.ip_address }}"
+
+      - alert: UnauthorizedAccessAttempt
+        expr: increase(unauthorized_access_attempts[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Unauthorized access attempts detected"
+          description: "{{ $value }} unauthorized attempts from {{ $labels.ip_address }}"
+
+      - alert: AnomalousDataAccess
+        expr: audit_log_anomaly_score > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Anomalous data access pattern detected"
+          description: "Anomaly score {{ $value }} for user {{ $labels.user_id }}"
+
+  # Infrastructure Alerts
+  - name: infrastructure_alerts
+    interval: 30s
+    rules:
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value | humanizePercentage }} of available memory"
+
+      - alert: RabbitMQQueueGrowing
+        expr: rabbitmq_queue_messages > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: rabbitmq
+        annotations:
+          summary: "RabbitMQ queue is growing"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages"
+
+      - alert: VectorDatabaseSlow
+        expr: qdrant_search_duration_seconds > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: qdrant
+        annotations:
+          summary: "Vector database searches are slow"
+          description: "Search duration is {{ $value }}s (threshold: 1s)"
+
+  # Capacity Planning Alerts
+  - name: capacity_alerts
+    interval: 5m
+    rules:
+      - alert: StorageCapacityWarning
+        expr: predict_linear(system_disk_usage_percent[1h], 24*3600) > 90
+        for: 30m
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: "Storage capacity warning"
+          description: "Disk will be full in less than 24 hours at current rate"
+
+      - alert: MemoryCapacityWarning
+        expr: predict_linear(system_memory_usage_percent[1h], 4*3600) > 95
+        for: 30m
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: "Memory capacity warning"
+          description: "Memory will be exhausted in less than 4 hours at current rate"
+
+      - alert: DatabaseGrowthRate
+        expr: rate(pg_database_size_bytes[1h]) > 1073741824  # 1GB/hour
+        for: 1h
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: "Database growing rapidly"
+          description: "Database is growing at {{ $value | humanize }}B per hour"
+
+  # SLA Alerts
+  - name: sla_alerts
+    interval: 1m
+    rules:
+      - alert: SLAViolationAvailability
+        expr: avg_over_time(up[5m]) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          component: sla
+        annotations:
+          summary: "SLA violation: Availability below 99.9%"
+          description: "Service availability is {{ $value | humanizePercentage }}"
+
+      - alert: SLAViolationLatency
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 3
+        for: 5m
+        labels:
+          severity: critical
+          component: sla
+        annotations:
+          summary: "SLA violation: p99 latency above 3s"
+          description: "99th percentile latency is {{ $value }}s"
+
+      - alert: SLAViolationErrorBudget
+        expr: sum(rate(http_requests_total{status=~"5.."}[1h])) / sum(rate(http_requests_total[1h])) > 0.001
+        for: 5m
+        labels:
+          severity: critical
+          component: sla
+        annotations:
+          summary: "SLA violation: Error budget exceeded"
+          description: "Error rate {{ $value | humanizePercentage }} exceeds 0.1% budget"

@@ -1,0 +1,71 @@
+{
+  "name": "bdt-platform",
+  "version": "5.0.0",
+  "description": "Behavioral Digital Twin Platform - Enterprise AI agent system with Fourth Ontology framework",
+  "author": "Airiam Technologies",
+  "license": "Proprietary",
+  "consolidation": {
+    "date": "2024-12-02",
+    "sessions_merged": 5,
+    "total_files": 200,
+    "languages": ["Python", "TypeScript", "JavaScript", "YAML", "Markdown"],
+    "frameworks": [
+      "FastAPI",
+      "React",
+      "Next.js", 
+      "LangChain",
+      "PostgreSQL",
+      "Redis",
+      "Docker",
+      "Kubernetes"
+    ]
+  },
+  "capabilities": {
+    "L1": "Basic Q&A with RAG",
+    "L2": "Behavioral Mimic",
+    "L3": "Guided Twin with HILT",
+    "L4": "Delegated Agent (Autonomous)"
+  },
+  "integrations": [
+    "Microsoft 365",
+    "Google Workspace",
+    "Slack",
+    "OpenAI GPT-4",
+    "Qdrant",
+    "Pinecone"
+  ],
+  "requirements": {
+    "python": ">=3.10",
+    "node": ">=18.0.0",
+    "docker": ">=20.10",
+    "postgresql": ">=15.0",
+    "redis": ">=7.0"
+  },
+  "scripts": {
+    "setup": "./setup.sh",
+    "start": "docker-compose up -d",
+    "stop": "docker-compose down",
+    "test": "pytest",
+    "dev:backend": "uvicorn backend.api.main:app --reload",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "docker-compose build",
+    "migrate": "python scripts/migrate.py"
+  },
+  "directories": {
+    "backend": "Core Python backend services",
+    "frontend": "React/Next.js web interface",
+    "tests": "Test suites",
+    "docs": "Documentation",
+    "kubernetes": "K8s deployment manifests",
+    "monitoring": "Prometheus/Grafana configs",
+    "scripts": "Utility scripts",
+    "security": "Security tools and configs"
+  },
+  "endpoints": {
+    "frontend": "http://localhost:3000",
+    "api": "http://localhost:8000",
+    "api_docs": "http://localhost:8000/docs",
+    "database": "postgresql://localhost:5432/bdt_platform",
+    "redis": "redis://localhost:6379"
+  }
+}

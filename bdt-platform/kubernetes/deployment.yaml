@@ -1,0 +1,1244 @@
+# BDT Platform - Kubernetes Deployment Manifests
+# Complete production-ready deployment for all services
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bdt-platform
+  labels:
+    name: bdt-platform
+    environment: production
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdt-config
+  namespace: bdt-platform
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  # Database URLs (using internal service names)
+  DATABASE_URL: "postgresql+asyncpg://bdt:$(POSTGRES_PASSWORD)@postgres-service:5432/bdt_poc"
+  REDIS_URL: "redis://redis-service:6379"
+  # Service URLs
+  ORCHESTRATION_SERVICE_URL: "http://orchestration-service:8000"
+  SECURITY_SERVICE_URL: "http://security-service:8005"
+  INGESTION_SERVICE_URL: "http://ingestion-service:8001"
+  PROCESSING_SERVICE_URL: "http://processing-service:8002"
+  ANALYSIS_SERVICE_URL: "http://analysis-service:8003"
+  UI_BACKEND_URL: "http://ui-backend-service:8004"
+  MONITORING_SERVICE_URL: "http://monitoring-service:9090"
+  # Vector Database
+  QDRANT_URL: "http://qdrant-service:6333"
+  # Message Queue
+  RABBITMQ_URL: "amqp://bdt:$(RABBITMQ_PASSWORD)@rabbitmq-service:5672"
+  # Monitoring
+  JAEGER_HOST: "jaeger-service"
+  JAEGER_PORT: "6831"
+  PROMETHEUS_URL: "http://prometheus-service:9090"
+
+---
+# Secret for sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bdt-secrets
+  namespace: bdt-platform
+type: Opaque
+stringData:
+  # Database
+  POSTGRES_PASSWORD: "change-in-production"
+  RABBITMQ_PASSWORD: "change-in-production"
+  # Security
+  JWT_SECRET_KEY: "change-to-secure-secret"
+  ENCRYPTION_KEY: "change-to-secure-key"
+  # OAuth
+  MS_CLIENT_ID: "your-microsoft-client-id"
+  MS_CLIENT_SECRET: "your-microsoft-client-secret"
+  MS_TENANT_ID: "your-microsoft-tenant-id"
+  # AI Services
+  OPENAI_API_KEY: "your-openai-api-key"
+  ANTHROPIC_API_KEY: "your-anthropic-api-key"
+
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: bdt-platform
+spec:
+  serviceName: postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "bdt"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdt-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: "bdt_poc"
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - bdt
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - bdt
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: postgres-init
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  clusterIP: None
+
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        command: ["redis-server", "--appendonly", "yes"]
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: redis-storage
+        emptyDir: {}
+
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+
+---
+# Qdrant Vector Database Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qdrant
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+      - name: qdrant
+        image: qdrant/qdrant:latest
+        ports:
+        - containerPort: 6333
+        - containerPort: 6334
+        env:
+        - name: QDRANT__SERVICE__GRPC_PORT
+          value: "6334"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: qdrant-storage
+          mountPath: /qdrant/storage
+      volumes:
+      - name: qdrant-storage
+        emptyDir: {}
+
+---
+# Qdrant Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: qdrant
+  ports:
+  - name: http
+    port: 6333
+    targetPort: 6333
+  - name: grpc
+    port: 6334
+    targetPort: 6334
+
+---
+# RabbitMQ StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: bdt-platform
+spec:
+  serviceName: rabbitmq-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3-management-alpine
+        ports:
+        - containerPort: 5672
+        - containerPort: 15672
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: "bdt"
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            secretKeyRef:
+              name: bdt-secrets
+              key: RABBITMQ_PASSWORD
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: rabbitmq-storage
+          mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+
+---
+# RabbitMQ Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+  - name: amqp
+    port: 5672
+    targetPort: 5672
+  - name: management
+    port: 15672
+    targetPort: 15672
+
+---
+# Orchestration Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestration-service
+  namespace: bdt-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orchestration-service
+  template:
+    metadata:
+      labels:
+        app: orchestration-service
+        version: "5.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: orchestration
+        image: bdt/orchestration-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Orchestration Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestration-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: orchestration-service
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+
+---
+# Security Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-service
+  namespace: bdt-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: security-service
+  template:
+    metadata:
+      labels:
+        app: security-service
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8005"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: security
+        image: bdt/security-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8005
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8005
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8005
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Security Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: security-service
+  ports:
+  - port: 8005
+    targetPort: 8005
+
+---
+# Ingestion Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  namespace: bdt-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ingestion-service
+  template:
+    metadata:
+      labels:
+        app: ingestion-service
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: ingestion
+        image: bdt/ingestion-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8001
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+
+---
+# Ingestion Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: ingestion-service
+  ports:
+  - port: 8001
+    targetPort: 8001
+
+---
+# Processing Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processing-service
+  namespace: bdt-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: processing-service
+  template:
+    metadata:
+      labels:
+        app: processing-service
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: processing
+        image: bdt/processing-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8002
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "4000m"
+
+---
+# Processing Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: processing-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: processing-service
+  ports:
+  - port: 8002
+    targetPort: 8002
+
+---
+# Analysis Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-service
+  namespace: bdt-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analysis-service
+  template:
+    metadata:
+      labels:
+        app: analysis-service
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: analysis
+        image: bdt/analysis-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8003
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "4000m"
+
+---
+# Analysis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: analysis-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: analysis-service
+  ports:
+  - port: 8003
+    targetPort: 8003
+
+---
+# Monitoring Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-service
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring-service
+  template:
+    metadata:
+      labels:
+        app: monitoring-service
+        version: "1.0.0"
+    spec:
+      containers:
+      - name: monitoring
+        image: bdt/monitoring-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9090
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+---
+# Monitoring Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: monitoring-service
+  ports:
+  - port: 9090
+    targetPort: 9090
+
+---
+# UI Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui-backend
+  namespace: bdt-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ui-backend
+  template:
+    metadata:
+      labels:
+        app: ui-backend
+        version: "1.0.0"
+    spec:
+      containers:
+      - name: ui-backend
+        image: bdt/ui-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8004
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+---
+# UI Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui-backend-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: ui-backend
+  ports:
+  - port: 8004
+    targetPort: 8004
+
+---
+# UI Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui-frontend
+  namespace: bdt-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ui-frontend
+  template:
+    metadata:
+      labels:
+        app: ui-frontend
+        version: "1.0.0"
+    spec:
+      containers:
+      - name: ui-frontend
+        image: bdt/ui-frontend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        env:
+        - name: REACT_APP_API_URL
+          value: "https://api.bdt.example.com"
+        - name: REACT_APP_WS_URL
+          value: "wss://api.bdt.example.com/ws"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# UI Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui-frontend-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: ui-frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+# Celery Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: bdt-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      containers:
+      - name: celery-worker
+        image: bdt/orchestration-service:latest
+        command: ["celery", "-A", "tasks", "worker", "--loglevel=info"]
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+
+---
+# Celery Beat Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+    spec:
+      containers:
+      - name: celery-beat
+        image: bdt/orchestration-service:latest
+        command: ["celery", "-A", "tasks", "beat", "--loglevel=info"]
+        envFrom:
+        - configMapRef:
+            name: bdt-config
+        - secretRef:
+            name: bdt-secrets
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+        - '--web.enable-lifecycle'
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+
+---
+# Grafana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdt-secrets
+              key: GRAFANA_PASSWORD
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+
+---
+# Grafana Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+# Jaeger All-in-One Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: bdt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        ports:
+        - containerPort: 5775
+          protocol: UDP
+        - containerPort: 6831
+          protocol: UDP
+        - containerPort: 6832
+          protocol: UDP
+        - containerPort: 5778
+        - containerPort: 16686
+        - containerPort: 14268
+        - containerPort: 14250
+        - containerPort: 9411
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        - name: COLLECTOR_ZIPKIN_HOST_PORT
+          value: ":9411"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+---
+# Jaeger Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: bdt-platform
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: udp-5775
+    port: 5775
+    protocol: UDP
+    targetPort: 5775
+  - name: udp-6831
+    port: 6831
+    protocol: UDP
+    targetPort: 6831
+  - name: udp-6832
+    port: 6832
+    protocol: UDP
+    targetPort: 6832
+  - name: tcp-5778
+    port: 5778
+    targetPort: 5778
+  - name: tcp-16686
+    port: 16686
+    targetPort: 16686
+  - name: tcp-14268
+    port: 14268
+    targetPort: 14268
+  - name: tcp-14250
+    port: 14250
+    targetPort: 14250
+  - name: tcp-9411
+    port: 9411
+    targetPort: 9411
+
+---
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdt-ingress
+  namespace: bdt-platform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+spec:
+  tls:
+  - hosts:
+    - app.bdt.example.com
+    - api.bdt.example.com
+    secretName: bdt-tls
+  rules:
+  - host: app.bdt.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ui-frontend-service
+            port:
+              number: 3000
+  - host: api.bdt.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestration-service
+            port:
+              number: 8000
+
+---
+# ServiceAccount for Prometheus
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: bdt-platform
+
+---
+# ClusterRole for Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: bdt-platform
+
+---
+# HorizontalPodAutoscaler for Orchestration Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestration-hpa
+  namespace: bdt-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestration-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# HorizontalPodAutoscaler for Processing Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: processing-hpa
+  namespace: bdt-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: processing-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bdt-network-policy
+  namespace: bdt-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: bdt-platform
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: bdt-platform
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+  - ports:
+    - protocol: TCP
+      port: 443  # Allow HTTPS outbound for external APIs
+    - protocol: TCP
+      port: 53   # Allow DNS
+    - protocol: UDP
+      port: 53   # Allow DNS

@@ -1,0 +1,374 @@
+_format_version: "3.0"
+_transform: true
+
+# Services Configuration
+services:
+  # Orchestration Service
+  - name: orchestration-service
+    url: http://orchestration-service:8000
+    protocol: http
+    host: orchestration-service
+    port: 8000
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - core
+      - phase5
+    routes:
+      - name: orchestration-routes
+        paths:
+          - /api/v1/personas
+          - /api/v1/query
+          - /api/v1/ingestion
+          - /api/v1/hilt
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+        tags:
+          - api
+
+  # Security Service
+  - name: security-service
+    url: http://security-service:8005
+    protocol: http
+    host: security-service
+    port: 8005
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - security
+      - phase5
+    routes:
+      - name: auth-routes
+        paths:
+          - /api/v1/auth
+          - /api/v1/roles
+          - /api/v1/permissions
+          - /api/v1/audit
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        tags:
+          - auth
+
+  # Ingestion Service
+  - name: ingestion-service
+    url: http://ingestion-service:8001
+    protocol: http
+    host: ingestion-service
+    port: 8001
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - ingestion
+      - phase1
+    routes:
+      - name: ingestion-routes
+        paths:
+          - /api/v1/ingest
+          - /api/v1/sources
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        tags:
+          - data
+
+  # Processing Service
+  - name: processing-service
+    url: http://processing-service:8002
+    protocol: http
+    host: processing-service
+    port: 8002
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - processing
+      - phase2
+    routes:
+      - name: processing-routes
+        paths:
+          - /api/v1/process
+          - /api/v1/embed
+          - /api/v1/extract
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        tags:
+          - processing
+
+  # Analysis Service
+  - name: analysis-service
+    url: http://analysis-service:8003
+    protocol: http
+    host: analysis-service
+    port: 8003
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - analysis
+      - phase3
+    routes:
+      - name: analysis-routes
+        paths:
+          - /api/v1/analyze
+          - /api/v1/fourth-ontology
+          - /api/v1/patterns
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        tags:
+          - ai
+
+  # Monitoring Service
+  - name: monitoring-service
+    url: http://monitoring-service:9090
+    protocol: http
+    host: monitoring-service
+    port: 9090
+    path: /
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - monitoring
+      - phase5
+    routes:
+      - name: monitoring-routes
+        paths:
+          - /api/v1/metrics
+          - /api/v1/health
+          - /api/v1/alerts
+          - /api/v1/traces
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+        tags:
+          - ops
+
+  # WebSocket Support
+  - name: websocket-service
+    url: http://orchestration-service:8000
+    protocol: http
+    host: orchestration-service
+    port: 8000
+    path: /
+    tags:
+      - websocket
+    routes:
+      - name: websocket-routes
+        paths:
+          - /ws
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - ws
+          - wss
+        tags:
+          - realtime
+
+# Global Plugins
+plugins:
+  # Rate Limiting
+  - name: rate-limiting
+    config:
+      minute: 60
+      hour: 1000
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      redis_ssl: false
+      redis_ssl_verify: false
+      error_message: "API rate limit exceeded"
+
+  # CORS
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - HEAD
+        - PUT
+        - PATCH
+        - POST
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - Authorization
+      exposed_headers:
+        - X-Auth-Token
+        - X-Request-Id
+      credentials: true
+      max_age: 3600
+
+  # Request/Response Logging
+  - name: file-log
+    config:
+      path: /var/log/kong/kong.log
+      reopen: false
+      custom_fields_by_lua:
+        request_body: kong.request.get_raw_body
+        response_body: kong.response.get_raw_body
+
+  # Request ID Generation
+  - name: correlation-id
+    config:
+      header_name: X-Request-Id
+      generator: uuid
+      echo_downstream: true
+
+  # Request Size Limiting
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 50  # MB
+      size_unit: megabytes
+      require_content_length: false
+
+  # Response Transformer
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - X-Platform-Version:5.0.0
+          - X-Powered-By:BDT-Platform
+
+  # Bot Detection
+  - name: bot-detection
+    config:
+      allow:
+        - "(Uptime Robot)"
+        - "(Prometheus)"
+      deny:
+        - "(bot|crawler|spider|scraper)"
+
+# Upstreams Configuration for Load Balancing
+upstreams:
+  - name: orchestration-upstream
+    algorithm: round-robin
+    slots: 10000
+    healthchecks:
+      active:
+        healthy:
+          interval: 5
+          successes: 2
+          http_statuses:
+            - 200
+            - 201
+            - 202
+        unhealthy:
+          interval: 5
+          http_failures: 3
+          http_statuses:
+            - 500
+            - 503
+          tcp_failures: 3
+          timeouts: 3
+        http_path: /
+        timeout: 1
+        type: http
+        concurrency: 10
+      passive:
+        healthy:
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+        unhealthy:
+          http_failures: 3
+          http_statuses:
+            - 429
+            - 500
+            - 503
+          tcp_failures: 3
+          timeouts: 3
+    targets:
+      - target: orchestration-service:8000
+        weight: 100
+    tags:
+      - production
+
+# Consumer Authentication
+consumers:
+  - username: admin
+    custom_id: admin-001
+    tags:
+      - admin
+    keyauth_credentials:
+      - key: admin-api-key-change-in-production
+    jwt_secrets:
+      - secret: admin-jwt-secret-change-in-production
+        algorithm: HS256
+
+  - username: service-account
+    custom_id: service-001
+    tags:
+      - service
+    keyauth_credentials:
+      - key: service-api-key-change-in-production
+
+# ACL Groups
+acls:
+  - consumer: admin
+    group: admin-group
+    tags:
+      - admin-access
+
+  - consumer: service-account
+    group: service-group
+    tags:
+      - service-access
+
+# Rate Limit Tiers
+rate_limiting_tiers:
+  - consumer: admin
+    config:
+      minute: 1000
+      hour: 10000
+
+  - consumer: service-account
+    config:
+      minute: 500
+      hour: 5000
