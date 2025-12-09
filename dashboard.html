@@ -1,0 +1,320 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>BDT Platform</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, Arial, sans-serif; display: flex; height: 100vh; }
+        .sidebar { width: 260px; background: #1e3a8a; color: white; }
+        .sidebar h1 { padding: 20px; font-size: 24px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .nav-item { padding: 15px 20px; cursor: pointer; transition: 0.2s; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: rgba(255,255,255,0.2); border-left: 4px solid white; }
+        .main { flex: 1; display: flex; flex-direction: column; }
+        .header { background: white; padding: 20px 30px; border-bottom: 1px solid #e5e7eb; }
+        .content { flex: 1; padding: 30px; background: #f5f5f5; overflow: auto; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .card { background: white; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .btn { padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        .btn:hover { background: #2563eb; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .input-group { margin: 15px 0; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: 600; }
+        .input-group input, .input-group select { width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; }
+        .service-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
+        .service-card { border: 2px solid #e5e7eb; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .service-card:hover { border-color: #3b82f6; }
+        .service-card.selected { background: #eff6ff; border-color: #3b82f6; }
+        .service-card.disabled { opacity: 0.5; cursor: not-allowed; }
+        .service-card h4 { margin: 0 0 5px 0; }
+        .service-card p { margin: 0; font-size: 12px; color: #666; }
+        .platform-section { margin: 30px 0; }
+        .platform-header { font-weight: 600; margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1> BDT Platform</h1>
+        <div class="nav-item active" data-view="dashboard"> Dashboard</div>
+        <div class="nav-item" data-view="integration"> Integration</div>
+        <div class="nav-item" data-view="analysis"> Analysis</div>
+        <div class="nav-item" data-view="executive"> Executive Summary</div>
+        <div class="nav-item" data-view="behavioral"> Behavioral Analysis</div>
+        <div class="nav-item" data-view="team"> Team Dynamics</div>
+        <div class="nav-item" data-view="risk"> Risk Assessment</div>
+        <div class="nav-item" data-view="predictions"> Predictions</div>
+        <div class="nav-item" data-view="recommendations"> Recommendations</div>
+        <div class="nav-item" data-view="ontology"> Fourth Ontology</div>
+        <div class="nav-item" data-view="processes"> Processes</div>
+        <div class="nav-item" data-view="settings"> Settings</div>
+    </div>
+    
+    <div class="main">
+        <div class="header">
+            <h2 id="page-title">Dashboard</h2>
+        </div>
+        
+        <div class="content">
+            <!-- Dashboard View -->
+            <div id="dashboard" class="view active">
+                <div class="card">
+                    <h3>System Status</h3>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 20px;">
+                        <div style="text-align: center; padding: 20px; background: #d1fae5; border-radius: 8px;">
+                            <div style="font-size: 24px;"></div>
+                            <div>PostgreSQL</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: #d1fae5; border-radius: 8px;">
+                            <div style="font-size: 24px;"></div>
+                            <div>Azure AI Search</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: #d1fae5; border-radius: 8px;">
+                            <div style="font-size: 24px;"></div>
+                            <div>Graph DB</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: #d1fae5; border-radius: 8px;">
+                            <div style="font-size: 24px;"></div>
+                            <div>OpenAI</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Integration View -->
+            <div id="integration" class="view">
+                <div class="card">
+                    <h3>Configure Data Integration</h3>
+                    <p style="color: #666;">Set up data source access for analysis</p>
+                    
+                    <div class="input-group">
+                        <label>User Email</label>
+                        <input type="email" id="user-email" placeholder="user@company.com">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>User Type</label>
+                        <select id="user-type">
+                            <option value="active">Active Employee</option>
+                            <option value="departed">Departed Employee</option>
+                            <option value="external">External User</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Microsoft 365 Services -->
+                    <div class="platform-section">
+                        <div class="platform-header">
+                            <span style="font-size: 20px;"></span> Microsoft 365 Services
+                        </div>
+                        <div class="service-grid">
+                            <div class="service-card" id="service-email" onclick="toggleService('email')">
+                                <h4> Email</h4>
+                                <p>Outlook messages and attachments</p>
+                            </div>
+                            <div class="service-card" id="service-onedrive" onclick="toggleService('onedrive')">
+                                <h4> OneDrive</h4>
+                                <p>Files and documents</p>
+                            </div>
+                            <div class="service-card" id="service-teams" onclick="toggleService('teams')">
+                                <h4> Teams Chat</h4>
+                                <p>Messages and conversations</p>
+                            </div>
+                            <div class="service-card" id="service-calendar" onclick="toggleService('calendar')">
+                                <h4> Calendar</h4>
+                                <p>Events and meetings</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slack Integration (Placeholder) -->
+                    <div class="platform-section">
+                        <div class="platform-header">
+                            <span style="font-size: 20px;">#</span> Slack Integration
+                        </div>
+                        <div class="service-grid">
+                            <div class="service-card disabled" id="service-slack-messages">
+                                <h4> Slack Messages</h4>
+                                <p>Direct messages and channels (Coming Soon)</p>
+                            </div>
+                            <div class="service-card disabled" id="service-slack-files">
+                                <h4> Slack Files</h4>
+                                <p>Shared files and snippets (Coming Soon)</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Google Workspace (Placeholder) -->
+                    <div class="platform-section">
+                        <div class="platform-header">
+                            <span style="font-size: 20px;"></span> Google Workspace
+                        </div>
+                        <div class="service-grid">
+                            <div class="service-card disabled" id="service-gmail">
+                                <h4> Gmail</h4>
+                                <p>Email messages (Coming Soon)</p>
+                            </div>
+                            <div class="service-card disabled" id="service-gdrive">
+                                <h4> Google Drive</h4>
+                                <p>Files and folders (Coming Soon)</p>
+                            </div>
+                            <div class="service-card disabled" id="service-gcal">
+                                <h4> Google Calendar</h4>
+                                <p>Events and meetings (Coming Soon)</p>
+                            </div>
+                            <div class="service-card disabled" id="service-gmeet">
+                                <h4> Google Meet</h4>
+                                <p>Meeting recordings (Coming Soon)</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 30px;">
+                        <button class="btn" onclick="configureUser()">Configure User</button>
+                        <button class="btn" id="sync-btn" style="display: none; background: #10b981;" onclick="syncData()">Sync Selected Data</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Configured Users</h3>
+                    <div id="configured-users">
+                        <p style="color: #999;">No users configured yet.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Analysis View -->
+            <div id="analysis" class="view">
+                <div class="card">
+                    <h3>Data Analysis</h3>
+                    <select id="analysis-user" style="margin: 10px 0;">
+                        <option value="">Select user to analyze...</option>
+                    </select>
+                    <div style="border: 1px solid #e5e7eb; padding: 20px; min-height: 300px; border-radius: 8px; margin: 20px 0;">
+                        <div id="chat-messages" style="color: #666;">
+                            Configure users in the Integration tab first.
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="question" placeholder="Ask a question..." style="flex: 1; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <button class="btn" onclick="askQuestion()">Ask</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Other views (empty for now) -->
+            <div id="executive" class="view"><div class="card"><h3>Executive Summary</h3></div></div>
+            <div id="behavioral" class="view"><div class="card"><h3>Behavioral Analysis</h3></div></div>
+            <div id="team" class="view"><div class="card"><h3>Team Dynamics</h3></div></div>
+            <div id="risk" class="view"><div class="card"><h3>Risk Assessment</h3></div></div>
+            <div id="predictions" class="view"><div class="card"><h3>Predictions</h3></div></div>
+            <div id="recommendations" class="view"><div class="card"><h3>Recommendations</h3></div></div>
+            <div id="ontology" class="view"><div class="card"><h3>Fourth Ontology</h3></div></div>
+            <div id="processes" class="view"><div class="card"><h3>Processes & Procedures</h3></div></div>
+            <div id="settings" class="view"><div class="card"><h3>Settings</h3></div></div>
+        </div>
+    </div>
+    
+    <script>
+        let selectedServices = {};
+        let configuredUsers = {};
+        
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+                this.classList.add('active');
+                document.getElementById(this.getAttribute('data-view')).classList.add('active');
+                document.getElementById('page-title').textContent = this.textContent.substring(2);
+            });
+        });
+        
+        function toggleService(service) {
+            const card = document.getElementById('service-' + service);
+            if (card.classList.contains('disabled')) return;
+            
+            if (selectedServices[service]) {
+                delete selectedServices[service];
+                card.classList.remove('selected');
+            } else {
+                selectedServices[service] = true;
+                card.classList.add('selected');
+            }
+            
+            // Show sync button if services selected
+            document.getElementById('sync-btn').style.display = 
+                Object.keys(selectedServices).length > 0 ? 'inline-block' : 'none';
+        }
+        
+        async function configureUser() {
+            const email = document.getElementById('user-email').value;
+            if (!email) {
+                alert('Please enter an email address');
+                return;
+            }
+            
+            configuredUsers[email] = {
+                type: document.getElementById('user-type').value,
+                services: {...selectedServices}
+            };
+            
+            // Update UI
+            updateUsersList();
+            
+            // Reset form
+            document.getElementById('user-email').value = '';
+            selectedServices = {};
+            document.querySelectorAll('.service-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            alert(`User ${email} configured. Select services and click "Sync Selected Data" to begin.`);
+        }
+        
+        function updateUsersList() {
+            const container = document.getElementById('configured-users');
+            const select = document.getElementById('analysis-user');
+            
+            container.innerHTML = '';
+            select.innerHTML = '<option value="">Select user...</option>';
+            
+            for (const [email, config] of Object.entries(configuredUsers)) {
+                container.innerHTML += `
+                    <div style="border: 1px solid #e5e7eb; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                        <strong>${email}</strong> (${config.type})
+                        <div style="margin-top: 5px;">
+                            Services: ${Object.keys(config.services).join(', ') || 'None selected'}
+                        </div>
+                    </div>
+                `;
+                
+                const option = document.createElement('option');
+                option.value = email;
+                option.textContent = email;
+                select.appendChild(option);
+            }
+        }
+        
+        async function syncData() {
+            const services = Object.keys(selectedServices);
+            if (services.length === 0) {
+                alert('Please select at least one service');
+                return;
+            }
+            
+            alert(`Syncing: ${services.join(', ')}`);
+            // API call would go here
+        }
+        
+        async function askQuestion() {
+            const user = document.getElementById('analysis-user').value;
+            const question = document.getElementById('question').value;
+            
+            if (!user || !question) return;
+            
+            document.getElementById('chat-messages').innerHTML += 
+                `<p><strong>Q:</strong> ${question}<br><strong>A:</strong> Analysis in progress...</p>`;
+        }
+    </script>
+</body>
+</html>

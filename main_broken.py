@@ -1,0 +1,1483 @@
+﻿"""
+BDT Platform - COMPLETE Production Backend v2.0
+With Microsoft Graph, Background Tasks, Caching, and Dashboard Analytics
+"""
+import os
+import uuid
+import secrets
+import hashlib
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union
+import logging
+import json
+import asyncio
+from functools import wraps
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query, Header
+from fastapi.responses import HTMLResponse
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel, Field, EmailStr, validator
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, ForeignKey, Text, Integer, Boolean, Float
+from sqlalchemy.ext.declarative import declarative_base  
+from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.dialects.postgresql import UUID
+import jwt
+import numpy as np
+import httpx
+
+# Import our services
+from graph_service import graph_service, GraphAPIError
+from tasks import celery_app, sync_user_data, process_document, generate_analytics, get_task_status
+from cache_service import cache, QueryCache, SessionCache, RateLimiter, cached
+from dashboard_service import dashboard_service
+
+# Setup comprehensive logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/home/data/logs/bdt_platform.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# =====================
+# CONFIGURATION
+# =====================
+
+# Database - Handle both possible usernames
+DATABASE_URL = os.getenv("DATABASE_URL", 
+    "postgresql://bdtadmin:PumpkinPi14$@bdt-platform-db.postgres.database.azure.com:5432/bdtplatform?sslmode=require")
+
+# Try alternative username if connection fails
+ALT_DATABASE_URL = DATABASE_URL.replace("bdtadmin", "btadmin") if "bdtadmin" in DATABASE_URL else DATABASE_URL
+
+# Security
+JWT_SECRET = os.getenv("CHAINLIT_AUTH_SECRET", "a8B3x9K2m5P3q4R6s1T8u3V9w2X5y7Z0")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+# OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Storage
+CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "/home/data/chroma")
+AZURE_STORAGE_CONNECTION = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+
+# Redis
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# App configuration
+APP_URL = os.getenv("APP_URL", "https://bdt-platform-bfc3g7g6eabbf2a4.eastus2-01.azurewebsites.net")
+
+# =====================
+# DATABASE SETUP
+# =====================
+
+# Try primary connection first
+try:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=20, max_overflow=40)
+    engine.connect()
+    logger.info("Connected to database with primary username")
+except Exception as e:
+    logger.warning(f"Primary connection failed: {e}, trying alternative username")
+    try:
+        engine = create_engine(ALT_DATABASE_URL, pool_pre_ping=True, pool_size=20, max_overflow=40)
+        engine.connect()
+        logger.info("Connected to database with alternative username")
+        DATABASE_URL = ALT_DATABASE_URL
+    except Exception as e2:
+        logger.error(f"Both database connections failed: {e2}")
+        raise
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# =====================
+# DATABASE MODELS
+# =====================
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255))
+    password_hash = Column(String(255))
+    is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
+    metadata = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    twins = relationship("Twin", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+
+class Twin(Base):
+    __tablename__ = "twins"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    name = Column(String(255), nullable=False)
+    twin_type = Column(String(50), default="individual")
+    capability_level = Column(String(10), default="L1")
+    status = Column(String(50), default="active")
+    behavioral_profile = Column(JSON, default={})
+    metadata = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_sync = Column(DateTime)
+    
+    user = relationship("User", back_populates="twins")
+    embeddings = relationship("EmbeddingRecord", back_populates="twin", cascade="all, delete-orphan")
+
+class EmbeddingRecord(Base):
+    __tablename__ = "embedding_records"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    twin_id = Column(UUID(as_uuid=True), ForeignKey("twins.id"), index=True)
+    chroma_id = Column(String(255), unique=True, index=True)
+    source_type = Column(String(50), nullable=False, index=True)  # CRITICAL for filtering
+    source_subtype = Column(String(50))
+    source_id = Column(String(255))  # Original ID from source system
+    content = Column(Text)
+    content_hash = Column(String(64))  # For deduplication
+    embedding_model = Column(String(50), default="text-embedding-ada-002")
+    metadata = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    twin = relationship("Twin", back_populates="embeddings")
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    token = Column(String(500), unique=True, index=True)
+    refresh_token = Column(String(500), unique=True)
+    ip_address = Column(String(50))
+    user_agent = Column(String(500))
+    expires_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    user = relationship("User", back_populates="sessions")
+
+class TaskRecord(Base):
+    __tablename__ = "task_records"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(String(255), unique=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    task_type = Column(String(50))
+    status = Column(String(50))
+    result = Column(JSON)
+    error = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+# =====================
+# CHROMADB SETUP
+# =====================
+
+CHROMADB_AVAILABLE = False
+vector_collection = None
+embeddings_model = None
+
+try:
+    import chromadb
+    from chromadb.config import Settings
+    
+    os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
+    
+    chroma_client = chromadb.Client(Settings(
+        chroma_db_impl="duckdb+parquet",
+        persist_directory=CHROMA_PERSIST_DIR,
+        anonymized_telemetry=False
+    ))
+    
+    # Get or create collection
+    try:
+        vector_collection = chroma_client.get_collection("bdt_embeddings")
+    except:
+        vector_collection = chroma_client.create_collection("bdt_embeddings")
+    
+    CHROMADB_AVAILABLE = True
+    logger.info(f"ChromaDB initialized with {vector_collection.count()} documents")
+    
+except Exception as e:
+    logger.error(f"ChromaDB initialization failed: {e}")
+
+# =====================
+# OPENAI SETUP
+# =====================
+
+OPENAI_AVAILABLE = False
+
+try:
+    if OPENAI_API_KEY:
+        from langchain_openai import OpenAIEmbeddings
+        import openai
+        
+        openai.api_key = OPENAI_API_KEY
+        embeddings_model = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+        OPENAI_AVAILABLE = True
+        logger.info("OpenAI configured successfully")
+except Exception as e:
+    logger.warning(f"OpenAI setup failed: {e}")
+
+# =====================
+# FASTAPI APP
+# =====================
+
+app = FastAPI(
+    title="BDT Platform API",
+    description="Behavioral Digital Twin Platform with Microsoft Graph Integration",
+    version="2.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
+)
+
+# Single HTML Frontend Route
+from fastapi.responses import HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Serve HTML frontend"""
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <title>BDT Platform</title>
+    <style>
+        body { font-family: Arial; padding: 40px; background: #1a1a2e; color: white; }
+        .container { max-width: 800px; margin: auto; background: white; color: #333; padding: 30px; border-radius: 10px; }
+        h1 { color: #1a1a2e; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1> BDT Platform v3</h1>
+        <p class="success"> HTML Frontend is Working!</p>
+        <div>
+            <a href="/health">Health Check</a> |
+            <a href="/api/docs">API Documentation</a>
+        </div>
+    </div>
+</body>
+</html>"""
+
+# HTML Frontend Route
+from fastapi.responses import HTMLResponse
+
+
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <title>BDT Platform</title>
+    <style>
+        body { font-family: Arial; padding: 40px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .status { background: #4CAF50; color: white; padding: 10px; border-radius: 5px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>BDT Platform Dashboard</h1>
+        <div class="status"> System Online - HTML Working!</div>
+        <p>Welcome to your Behavioral Digital Twin Platform</p>
+        <ul>
+            <li><a href="/health">Health Status</a></li>
+            <li><a href="/api/docs">API Documentation</a></li>
+        </ul>
+    </div>
+</body>
+</html>"""
+
+# Security
+security = HTTPBearer()
+
+# Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]  # Configure for production
+)
+
+# =====================
+# DEPENDENCIES
+# =====================
+
+def get_db():
+    """Database session dependency"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """Get current user from JWT token"""
+    token = credentials.credentials
+    
+    try:
+        # Check cache first
+        cached_user = SessionCache.get_session(token[:20])
+        if cached_user:
+            user_id = cached_user.get("user_id")
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                return user
+        
+        # Decode token
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        # Get user
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Cache session
+        SessionCache.set_session(token[:20], {"user_id": str(user.id)}, expire=3600)
+        
+        return user
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def require_user(user: User = Depends(get_current_user)) -> User:
+    """Require authenticated user"""
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+    return user
+
+async def check_rate_limit(
+    user: User = Depends(get_current_user),
+    x_forwarded_for: Optional[str] = Header(None)
+):
+    """Rate limiting middleware"""
+    identifier = str(user.id) if user else (x_forwarded_for or "anonymous")
+    allowed, remaining = RateLimiter.check_rate_limit(identifier, limit=1000, window=60)
+    
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": "60", "X-RateLimit-Remaining": "0"}
+        )
+    
+    return {"remaining": remaining}
+
+# =====================
+# HELPER FUNCTIONS
+# =====================
+
+def generate_embedding(text: str) -> List[float]:
+    """Generate embedding using OpenAI or mock"""
+    if OPENAI_AVAILABLE and embeddings_model:
+        try:
+            return embeddings_model.embed_query(text)
+        except Exception as e:
+            logger.error(f"OpenAI embedding failed: {e}")
+    
+    # Fallback mock embedding
+    np.random.seed(hash(text) % 2**32)
+    return np.random.randn(1536).tolist()
+
+def store_with_source_metadata(
+    twin_id: str,
+    text: str,
+    source_type: str,
+    metadata: Dict,
+    db: Session
+) -> bool:
+    """Store text with proper source metadata for filtering"""
+    try:
+        # Check for duplicates
+        content_hash = hashlib.sha256(text.encode()).hexdigest()
+        existing = db.query(EmbeddingRecord).filter(
+            EmbeddingRecord.twin_id == twin_id,
+            EmbeddingRecord.content_hash == content_hash
+        ).first()
+        
+        if existing:
+            logger.info(f"Duplicate content skipped for {source_type}")
+            return True
+        
+        if CHROMADB_AVAILABLE and vector_collection:
+            # Generate embedding
+            embedding = generate_embedding(text)
+            
+            # Create unique ID
+            chroma_id = f"{twin_id}_{source_type}_{uuid.uuid4().hex[:8]}"
+            
+            # Store in ChromaDB with source metadata
+            vector_collection.add(
+                embeddings=[embedding],
+                documents=[text],
+                metadatas=[{
+                    "twin_id": twin_id,
+                    "source_type": source_type,
+                    **metadata
+                }],
+                ids=[chroma_id]
+            )
+            
+            # Store record in PostgreSQL
+            record = EmbeddingRecord(
+                twin_id=twin_id,
+                chroma_id=chroma_id,
+                source_type=source_type,
+                content=text[:500],
+                content_hash=content_hash,
+                metadata=metadata
+            )
+            db.add(record)
+            db.commit()
+            
+            # Invalidate query cache for this twin
+            QueryCache.invalidate_twin_queries(twin_id)
+            
+            logger.info(f"Stored embedding for {source_type}")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to store embedding: {e}")
+        db.rollback()
+    return False
+
+def query_with_source_filter(
+    twin_id: str,
+    query: str,
+    source_filters: List[str]
+) -> Dict:
+    """Query ChromaDB with source filtering"""
+    
+    # Check cache first
+    cached_result = QueryCache.get_cached_query(twin_id, query, source_filters)
+    if cached_result:
+        logger.info("Query result from cache")
+        return cached_result
+    
+    try:
+        if not CHROMADB_AVAILABLE or not vector_collection:
+            return {"results": [], "error": "ChromaDB not available"}
+        
+        # Generate query embedding
+        query_embedding = generate_embedding(query)
+        
+        # Build filter
+        where_clause = {"twin_id": twin_id}
+        
+        # Apply source filtering
+        if source_filters and "ALL" not in source_filters and "ALL DATA" not in source_filters:
+            # Map display names to source types
+            mapping = {
+                "Email": "email",
+                "Calendar": "calendar",
+                "Files": "files",
+                "Chat": "chat",
+                "Upload": "upload"
+            }
+            
+            types = [mapping.get(f, f.lower()) for f in source_filters]
+            
+            if len(types) == 1:
+                where_clause["source_type"] = types[0]
+            else:
+                where_clause["source_type"] = {"$in": types}
+            
+            logger.info(f"Filtering by sources: {types}")
+        
+        # Query ChromaDB
+        results = vector_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=10,  # Increased for better results
+            where=where_clause
+        )
+        
+        result_dict = {
+            "results": results.get("documents", [[]])[0],
+            "metadatas": results.get("metadatas", [[]])[0]
+        }
+        
+        # Cache the result
+        QueryCache.cache_query_result(twin_id, query, source_filters, result_dict)
+        
+        return result_dict
+        
+    except Exception as e:
+        logger.error(f"Query failed: {e}")
+        return {"results": [], "error": str(e)}
+
+def hash_password(password: str) -> str:
+    """Hash password using passlib"""
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password"""
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
+    """Create JWT token"""
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    
+    to_encode = {
+        "sub": user_id,
+        "exp": expire,
+        "iat": datetime.utcnow()
+    }
+    
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return encoded_jwt
+
+# =====================
+# PYDANTIC MODELS
+# =====================
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+class QueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1000)
+    source_filters: List[str] = Field(default=["ALL DATA"])
+    max_results: int = Field(default=5, ge=1, le=20)
+
+class QueryResponse(BaseModel):
+    response: str
+    sources: List[Dict]
+    confidence: float
+    cached: bool = False
+
+class SyncRequest(BaseModel):
+    sources: List[str] = Field(default=["emails", "calendar", "files", "teams"])
+    days_back: int = Field(default=90, ge=1, le=365)
+
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
+class DashboardRequest(BaseModel):
+    view: str = Field(..., pattern="^(knowledge|processes|calendar|relationships|persona|tools|tasks|growth|content)$")
+    refresh: bool = False
+
+# =====================
+# API ROUTES
+# =====================
+
+
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>BDT Platform</title>
+        <style>
+            body { font-family: Arial; margin: 40px; }
+            .status { color: green; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <h1>BDT Platform v3</h1>
+        <p class="status"> Frontend is finally working!</p>
+        <ul>
+            <li><a href="/api/docs">API Documentation</a></li>
+            <li><a href="/health">Health Check</a></li>
+        </ul>
+    </body>
+    </html>
+    """,
+        "documentation": f"{APP_URL}/api/docs"
+    }
+
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {
+            "database": False,
+            "chromadb": CHROMADB_AVAILABLE,
+            "cache": cache.redis_client is not None
+        }
+    }
+    
+    # Check database
+    try:
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        health_status["checks"]["database"] = True
+        db.close()
+    except:
+        pass
+    
+    # Overall health
+    health_status["healthy"] = all(health_status["checks"].values())
+    
+    return health_status
+
+# =====================
+# AUTHENTICATION ROUTES
+# =====================
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def register(
+    user_data: UserCreate,
+    db: Session = Depends(get_db)
+):
+    """Register new user"""
+    # Check if user exists
+    existing = db.query(User).filter(User.email == user_data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create user
+    user = User(
+        email=user_data.email,
+        name=user_data.name,
+        password_hash=hash_password(user_data.password)
+    )
+    db.add(user)
+    db.commit()
+    
+    # Create twin
+    twin = Twin(
+        user_id=user.id,
+        name=f"{user.name}'s Digital Twin",
+        capability_level="L1"
+    )
+    db.add(twin)
+    db.commit()
+    
+    # Generate tokens
+    access_token = create_access_token(str(user.id))
+    refresh_token = secrets.token_urlsafe(32)
+    
+    # Store session
+    session = UserSession(
+        user_id=user.id,
+        token=access_token,
+        refresh_token=refresh_token,
+        expires_at=datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    )
+    db.add(session)
+    db.commit()
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_HOURS * 3600
+    )
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(
+    credentials: UserLogin,
+    db: Session = Depends(get_db)
+):
+    """Login user"""
+    # Get user
+    user = db.query(User).filter(User.email == credentials.email).first()
+    
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is inactive")
+    
+    # Generate tokens
+    access_token = create_access_token(str(user.id))
+    refresh_token = secrets.token_urlsafe(32)
+    
+    # Store session
+    session = UserSession(
+        user_id=user.id,
+        token=access_token,
+        refresh_token=refresh_token,
+        expires_at=datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    )
+    db.add(session)
+    db.commit()
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_HOURS * 3600
+    )
+
+@app.post("/api/auth/demo-login", response_model=TokenResponse)
+async def demo_login(db: Session = Depends(get_db)):
+    """Demo login with test data"""
+    demo_email = "demo@bdt-platform.com"
+    
+    user = db.query(User).filter(User.email == demo_email).first()
+    
+    if not user:
+        # Create demo user
+        user = User(
+            email=demo_email,
+            name="Demo User",
+            password_hash=hash_password("demo123456")
+        )
+        db.add(user)
+        db.commit()
+        
+        # Create twin
+        twin = Twin(
+            user_id=user.id,
+            name="Demo Digital Twin",
+            capability_level="L2"
+        )
+        db.add(twin)
+        db.commit()
+        
+        # Generate demo data
+        demo_data = [
+            ("email", "Meeting scheduled for tomorrow at 2 PM with the product team"),
+            ("calendar", "Q4 Planning Session - Conference Room A"),
+            ("files", "Quarterly report draft completed and ready for review"),
+            ("chat", "Great work on the presentation! The client loved it"),
+            ("email", "Action items from today's standup meeting attached")
+        ]
+        
+        for source, content in demo_data:
+            store_with_source_metadata(
+                twin_id=str(twin.id),
+                text=content,
+                source_type=source,
+                metadata={"demo": True},
+                db=db
+            )
+    
+    # Generate token
+    access_token = create_access_token(str(user.id))
+    refresh_token = secrets.token_urlsafe(32)
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_HOURS * 3600
+    )
+
+# =====================
+# MICROSOFT GRAPH OAUTH
+# =====================
+
+@app.get("/api/auth/microsoft")
+async def microsoft_auth():
+    """Initiate Microsoft OAuth flow"""
+    state = secrets.token_urlsafe(32)
+    auth_url = graph_service.get_auth_url(state)
+    
+    # Store state in cache for verification
+    cache.set(f"oauth_state:{state}", True, expire=600, prefix="auth")
+    
+    return {"auth_url": auth_url}
+
+@app.get("/api/auth/microsoft/callback")
+async def microsoft_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Handle Microsoft OAuth callback"""
+    # Verify state
+    if not cache.get(f"oauth_state:{state}", prefix="auth"):
+        raise HTTPException(status_code=400, detail="Invalid state")
+    
+    cache.delete(f"oauth_state:{state}", prefix="auth")
+    
+    try:
+        # Exchange code for token
+        token_data = await graph_service.get_token_from_code(code)
+        
+        # Get user profile
+        profile = await graph_service.get_user_profile(token_data["access_token"])
+        
+        # Find or create user
+        user = db.query(User).filter(User.email == profile["email"]).first()
+        
+        if not user:
+            user = User(
+                email=profile["email"],
+                name=profile["name"],
+                metadata={
+                    "microsoft_id": profile["id"],
+                    "job_title": profile.get("job_title"),
+                    "department": profile.get("department")
+                }
+            )
+            db.add(user)
+            db.commit()
+            
+            # Create twin
+            twin = Twin(
+                user_id=user.id,
+                name=f"{user.name}'s Digital Twin",
+                capability_level="L2"
+            )
+            db.add(twin)
+            db.commit()
+        
+        # Store access token
+        user.metadata["access_token"] = token_data
+        db.commit()
+        
+        # Queue initial sync
+        twin = db.query(Twin).filter(Twin.user_id == user.id).first()
+        if twin:
+            task = sync_user_data.delay(
+                str(user.id),
+                token_data["access_token"]
+            )
+            
+            # Store task record
+            task_record = TaskRecord(
+                task_id=task.id,
+                user_id=user.id,
+                task_type="initial_sync",
+                status="pending"
+            )
+            db.add(task_record)
+            db.commit()
+        
+        # Generate platform token
+        access_token = create_access_token(str(user.id))
+        
+        # Redirect to frontend with token
+        return RedirectResponse(
+            url=f"{APP_URL}/dashboard?token={access_token}",
+            status_code=302
+        )
+        
+    except GraphAPIError as e:
+        logger.error(f"Microsoft OAuth failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# =====================
+# TWIN ROUTES
+# =====================
+
+@app.get("/api/twins")
+async def get_twins(
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's twins"""
+    twins = db.query(Twin).filter(Twin.user_id == current_user.id).all()
+    
+    return [{
+        "id": str(twin.id),
+        "name": twin.name,
+        "type": twin.twin_type,
+        "capability_level": twin.capability_level,
+        "status": twin.status,
+        "last_sync": twin.last_sync.isoformat() if twin.last_sync else None,
+        "created": twin.created_at.isoformat()
+    } for twin in twins]
+
+@app.post("/api/twin/{twin_id}/query", response_model=QueryResponse)
+async def query_twin(
+    twin_id: str,
+    request: QueryRequest,
+    current_user: User = Depends(require_user),
+    rate_limit: Dict = Depends(check_rate_limit),
+    db: Session = Depends(get_db)
+):
+    """Query twin with source filtering"""
+    
+    # Verify twin ownership
+    if twin_id != "demo-twin":
+        twin = db.query(Twin).filter(
+            Twin.id == twin_id,
+            Twin.user_id == current_user.id
+        ).first()
+        
+        if not twin:
+            raise HTTPException(status_code=404, detail="Twin not found")
+    else:
+        # For demo, use first twin
+        twin = db.query(Twin).filter(Twin.user_id == current_user.id).first()
+        if twin:
+            twin_id = str(twin.id)
+    
+    logger.info(f"Query: {request.query}, Filters: {request.source_filters}")
+    
+    # Query with filters
+    results = query_with_source_filter(
+        twin_id=twin_id,
+        query=request.query,
+        source_filters=request.source_filters
+    )
+    
+    # Check if from cache
+    from_cache = results.get("cached", False)
+    
+    # Generate response
+    if results.get("results"):
+        context = "\n".join(results["results"][:request.max_results])
+        
+        if OPENAI_AVAILABLE:
+            # Use OpenAI for response
+            try:
+                import openai
+                response = openai.ChatCompletion.create(
+                    model="gpt-4-turbo-preview",
+                    messages=[
+                        {"role": "system", "content": "You are an AI assistant analyzing behavioral patterns from a digital twin."},
+                        {"role": "user", "content": f"Based on this context:\n{context}\n\nAnswer this question: {request.query}"}
+                    ],
+                    max_tokens=500,
+                    temperature=0.7
+                )
+                response_text = response.choices[0].message.content
+            except Exception as e:
+                logger.error(f"OpenAI failed: {e}")
+                response_text = f"Based on your {', '.join(request.source_filters)} data:\n{context[:500]}..."
+        else:
+            response_text = f"Based on your {', '.join(request.source_filters)} data:\n{context[:500]}..."
+        
+        # Get unique sources
+        sources = []
+        seen = set()
+        for meta in results.get("metadatas", []):
+            src = meta.get("source_type", "unknown")
+            if src not in seen:
+                sources.append({
+                    "type": src,
+                    "count": sum(1 for m in results.get("metadatas", []) if m.get("source_type") == src),
+                    "confidence": 0.8
+                })
+                seen.add(src)
+        
+        return QueryResponse(
+            response=response_text,
+            sources=sources,
+            confidence=0.85 if sources else 0.5,
+            cached=from_cache
+        )
+    
+    return QueryResponse(
+        response="No relevant data found. Please sync your data sources or try different filters.",
+        sources=[],
+        confidence=0.0,
+        cached=False
+    )
+
+@app.post("/api/twin/{twin_id}/sync", response_model=TaskResponse)
+async def sync_twin_data(
+    twin_id: str,
+    request: SyncRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Sync data from Microsoft 365"""
+    
+    # Verify twin ownership
+    twin = db.query(Twin).filter(
+        Twin.id == twin_id,
+        Twin.user_id == current_user.id
+    ).first()
+    
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    
+    # Check for Microsoft token
+    token_data = current_user.metadata.get("access_token")
+    if not token_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Microsoft account not connected. Please authenticate first."
+        )
+    
+    # Check if token needs refresh
+    access_token = token_data.get("access_token")
+    
+    # Queue sync task
+    task = sync_user_data.delay(
+        str(current_user.id),
+        access_token,
+        request.sources
+    )
+    
+    # Store task record
+    task_record = TaskRecord(
+        task_id=task.id,
+        user_id=current_user.id,
+        task_type="data_sync",
+        status="pending"
+    )
+    db.add(task_record)
+    
+    # Update twin last sync
+    twin.last_sync = datetime.utcnow()
+    db.commit()
+    
+    return TaskResponse(
+        task_id=task.id,
+        status="queued",
+        message=f"Syncing {', '.join(request.sources)} data..."
+    )
+
+@app.post("/api/twin/{twin_id}/upload")
+async def upload_document(
+    twin_id: str,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Upload document for processing"""
+    
+    # Verify twin ownership
+    twin = db.query(Twin).filter(
+        Twin.id == twin_id,
+        Twin.user_id == current_user.id
+    ).first()
+    
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    
+    # Validate file
+    allowed_extensions = [".pdf", ".docx", ".txt", ".md"]
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    # Save file temporarily
+    temp_dir = "/tmp/bdt_uploads"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    file_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{file.filename}")
+    
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    # Queue processing task
+    task = process_document.delay(
+        file_path,
+        str(twin.id),
+        file_extension[1:],  # Remove dot
+        str(current_user.id)
+    )
+    
+    # Store task record
+    task_record = TaskRecord(
+        task_id=task.id,
+        user_id=current_user.id,
+        task_type="document_processing",
+        status="pending"
+    )
+    db.add(task_record)
+    db.commit()
+    
+    return {
+        "task_id": task.id,
+        "status": "processing",
+        "filename": file.filename,
+        "size": len(content)
+    }
+
+# =====================
+# DASHBOARD ROUTES
+# =====================
+
+@app.get("/api/dashboard/{view}")
+async def get_dashboard_view(
+    view: str,
+    refresh: bool = False,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get dashboard data for specific view"""
+    
+    # Get user's twin
+    twin = db.query(Twin).filter(Twin.user_id == current_user.id).first()
+    
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    
+    # Clear cache if refresh requested
+    if refresh:
+        cache_key = f"dashboard:{view}:{twin.id}"
+        cache.delete(cache_key, prefix="dashboard")
+    
+    try:
+        # Get dashboard data
+        data = dashboard_service.get_dashboard_data(
+            str(twin.id),
+            view,
+            db
+        )
+        
+        return data
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/dashboard/all")
+async def get_all_dashboards(
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get summary data for all dashboard views"""
+    
+    # Get user's twin
+    twin = db.query(Twin).filter(Twin.user_id == current_user.id).first()
+    
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    
+    summaries = {}
+    views = ["knowledge", "processes", "calendar", "relationships", "persona", "tools", "tasks", "growth", "content"]
+    
+    for view in views:
+        try:
+            # Get cached summary or generate
+            cache_key = f"summary:{view}:{twin.id}"
+            summary = cache.get(cache_key, prefix="dashboard")
+            
+            if not summary:
+                data = dashboard_service.get_dashboard_data(str(twin.id), view, db)
+                summary = {
+                    "title": view.capitalize(),
+                    "metric": data.get("metrics", {}).get("total_documents", 0) if view == "knowledge" else 0,
+                    "status": "active"
+                }
+                cache.set(cache_key, summary, expire=300, prefix="dashboard")
+            
+            summaries[view] = summary
+            
+        except Exception as e:
+            logger.error(f"Failed to get {view} summary: {e}")
+            summaries[view] = {
+                "title": view.capitalize(),
+                "error": str(e)
+            }
+    
+    return summaries
+
+# =====================
+# TASK ROUTES
+# =====================
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status_endpoint(
+    task_id: str,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get task status"""
+    
+    # Verify task ownership
+    task_record = db.query(TaskRecord).filter(
+        TaskRecord.task_id == task_id,
+        TaskRecord.user_id == current_user.id
+    ).first()
+    
+    if not task_record:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Get Celery task status
+    status = get_task_status(task_id)
+    
+    # Update record if completed
+    if status["status"] in ["SUCCESS", "FAILURE"]:
+        task_record.status = status["status"].lower()
+        task_record.completed_at = datetime.utcnow()
+        
+        if status["status"] == "SUCCESS":
+            task_record.result = status.get("result")
+        else:
+            task_record.error = str(status.get("result"))
+        
+        db.commit()
+    
+    return status
+
+@app.get("/api/tasks")
+async def list_tasks(
+    limit: int = Query(default=10, le=50),
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """List user's tasks"""
+    
+    tasks = db.query(TaskRecord).filter(
+        TaskRecord.user_id == current_user.id
+    ).order_by(TaskRecord.created_at.desc()).limit(limit).all()
+    
+    return [{
+        "task_id": task.task_id,
+        "type": task.task_type,
+        "status": task.status,
+        "created": task.created_at.isoformat(),
+        "completed": task.completed_at.isoformat() if task.completed_at else None
+    } for task in tasks]
+
+# =====================
+# ANALYTICS ROUTES
+# =====================
+
+@app.get("/api/analytics/overview")
+@cached(expire=3600, prefix="analytics")
+async def get_analytics_overview(
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get analytics overview"""
+    
+    # Get user's twin
+    twin = db.query(Twin).filter(Twin.user_id == current_user.id).first()
+    
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    
+    # Queue analytics generation
+    task = generate_analytics.delay(str(current_user.id), str(twin.id))
+    
+    # Get from cache or wait briefly
+    cache_key = f"analytics:{twin.id}"
+    analytics = cache.get(cache_key, prefix="analytics")
+    
+    if not analytics:
+        # Wait for task (max 2 seconds)
+        import time
+        for _ in range(4):
+            time.sleep(0.5)
+            analytics = cache.get(cache_key, prefix="analytics")
+            if analytics:
+                break
+    
+    if analytics:
+        return json.loads(analytics) if isinstance(analytics, str) else analytics
+    
+    # Return basic stats if analytics not ready
+    record_count = db.query(EmbeddingRecord).filter(
+        EmbeddingRecord.twin_id == twin.id
+    ).count()
+    
+    return {
+        "summary": {
+            "total_records": record_count,
+            "sources": 0
+        },
+        "by_source": {},
+        "trends": [],
+        "insights": ["Analytics are being generated..."]
+    }
+
+# =====================
+# ADMIN ROUTES
+# =====================
+
+@app.get("/api/admin/stats")
+async def get_admin_stats(
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Get platform statistics (admin only)"""
+    
+    # Simple admin check - in production, use proper roles
+    if current_user.email not in ["admin@bdt-platform.com", "greg@airiam.com"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    stats = {
+        "users": {
+            "total": db.query(User).count(),
+            "active": db.query(User).filter(User.is_active == True).count(),
+            "verified": db.query(User).filter(User.is_verified == True).count()
+        },
+        "twins": {
+            "total": db.query(Twin).count(),
+            "by_level": {}
+        },
+        "data": {
+            "total_embeddings": db.query(EmbeddingRecord).count(),
+            "by_source": {}
+        },
+        "tasks": {
+            "total": db.query(TaskRecord).count(),
+            "pending": db.query(TaskRecord).filter(TaskRecord.status == "pending").count(),
+            "completed": db.query(TaskRecord).filter(TaskRecord.status == "success").count()
+        },
+        "cache": cache.get_stats()
+    }
+    
+    # Get twins by level
+    from sqlalchemy import func
+    level_counts = db.query(
+        Twin.capability_level,
+        func.count(Twin.id)
+    ).group_by(Twin.capability_level).all()
+    
+    stats["twins"]["by_level"] = {level: count for level, count in level_counts}
+    
+    # Get embeddings by source
+    source_counts = db.query(
+        EmbeddingRecord.source_type,
+        func.count(EmbeddingRecord.id)
+    ).group_by(EmbeddingRecord.source_type).all()
+    
+    stats["data"]["by_source"] = {source: count for source, count in source_counts}
+    
+    return stats
+
+# =====================
+# ERROR HANDLERS
+# =====================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """Handle HTTP exceptions"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    """Handle value errors"""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": str(exc),
+            "status_code": 400,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle general exceptions"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "status_code": 500,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+# =====================
+# STARTUP & SHUTDOWN
+# =====================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logger.info("Starting BDT Platform API v2.0")
+    
+    # Warm up cache
+    cache.set("startup", True, expire=60, prefix="system")
+    
+    # Log service status
+    logger.info(f"Services: DB=OK, ChromaDB={CHROMADB_AVAILABLE}, OpenAI={OPENAI_AVAILABLE}, Redis={cache.redis_client is not None}")
+
+# FRONTEND SERVING - Added to fix missing UI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
+import os
+
+# Serve static files if they exist
+static_dir = "/app/static"
+if os.path.exists(static_dir):
+    app.mount("/assets", StaticFiles(directory=static_dir), name="static")
+
+# Serve index.html at root
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    index_path = "/app/static/index.html"
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
+            return HTMLResponse(content=f.read())
+    # Fallback to API response if no frontend
+    return HTMLResponse("""
+    <html>
+        <body>
+            <h1>BDT Platform API</h1>
+            <p>Frontend not found. API is running.</p>
+            <a href="/api/docs">API Documentation</a>
+        </body>
+    </html>
+    """)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Shutting down BDT Platform API")
+    
+    # Close database connections
+    engine.dispose()
+    
+    # Clear temporary cache
+    cache.delete_pattern("temp:*", prefix="system")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        access_log=True
+    )
+
+
+
+
+
