@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import json
 from typing import List, Dict
 import httpx
@@ -11,7 +11,7 @@ class TylerDataService:
     
     def __init__(self):
         self.client_id = "98f8baa3-5127-4ef1-83d7-cdec8b9cb791"
-        self.client_secret = "mpX8Q~mrLGi-dcQF-kpNGiC2ZkiXOB0Bi6I_BbCq"
+        self.client_secret = "YOUR_AZURE_SECRET_HERE"
         self.tenant_id = "ae228585-fff9-4624-8d69-77facf28d996"
         self.tyler_email = "tyler.helwig@airiam.com"
         
@@ -101,3 +101,4 @@ class TylerDataService:
         return files
 
 tyler_service = TylerDataService()
+

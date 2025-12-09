@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import msal
@@ -18,7 +18,7 @@ app.add_middleware(
 
 # Microsoft OAuth Configuration
 CLIENT_ID = "98f8baa3-5127-4ef1-83d7-cdec8b9cb791"
-CLIENT_SECRET = "mpX8Q~mrLGi-dcQF-kpNGiC2ZkiXOB0Bi6I_BbCq"
+CLIENT_SECRET = "YOUR_AZURE_SECRET_HERE"
 TENANT_ID = "ae228585-fff9-4624-8d69-77facf28d996"
 REDIRECT_URI = "https://bdt-platform-bfc3g7g6eabbf2a4.eastus2-01.azurewebsites.net/auth/callback"
 
@@ -213,3 +213,4 @@ async def sync_other_user(request: dict):
         return {"emails": len(emails), "user": target_email}
     else:
         return {"error": "Insufficient permissions or user not found"}
+

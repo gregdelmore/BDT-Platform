@@ -1,4 +1,4 @@
-﻿"""
+"""
 Multi-Service Integration Configuration
 Supports individual user authentication for each service
 """
@@ -38,7 +38,7 @@ class IntegrationManager:
     def __init__(self):
         # Your Azure app registration
         self.client_id = "98f8baa3-5127-4ef1-83d7-cdec8b9cb791"
-        self.client_secret = "mpX8Q~mrLGi-dcQF-kpNGiC2ZkiXOB0Bi6I_BbCq"
+        self.client_secret = "YOUR_AZURE_SECRET_HERE"
         self.tenant_id = "ae228585-fff9-4624-8d69-77facf28d996"
         self.redirect_uri = "https://bdt-platform-bfc3g7g6eabbf2a4.eastus2-01.azurewebsites.net/auth/callback"
         
@@ -298,3 +298,4 @@ class IntegrationManager:
 
 # Global instance
 integration_manager = IntegrationManager()
+

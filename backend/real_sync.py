@@ -1,4 +1,4 @@
-﻿"""
+"""
 REAL DATA SYNC - Tyler Helwig's Microsoft 365
 """
 import os
@@ -28,7 +28,7 @@ app.add_middleware(
 # ============= MICROSOFT GRAPH CONNECTION =============
 TENANT_ID = os.getenv("MICROSOFT_TENANT_ID", "ae228585-fff9-4624-8d69-77facf28d996")
 CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID", "98f8baa3-5127-4ef1-83d7-cdec8b9cb791")
-CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET", "mpX8Q~mrLGi-dcQF-kpNGiC2ZkiXOB0Bi6I_BbCq")
+CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET", "YOUR_AZURE_SECRET_HERE")
 
 def get_access_token():
     """Get Microsoft Graph access token"""
@@ -280,3 +280,4 @@ async def health():
         "database": pg_pool is not None,
         "microsoft_configured": bool(CLIENT_ID and CLIENT_SECRET)
     }
+

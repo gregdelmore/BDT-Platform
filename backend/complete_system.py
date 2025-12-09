@@ -1,4 +1,4 @@
-﻿"""
+"""
 COMPLETE BDT PLATFORM - ALL DATABASES
 PostgreSQL + ChromaDB + Neo4j + OpenAI
 """
@@ -100,7 +100,7 @@ except Exception as e:
 OPENAI_CONNECTED = False
 try:
     import requests
-    OPENAI_KEY = os.getenv("OPENAI_API_KEY", "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")
+    OPENAI_KEY = os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY_HERE")
     OPENAI_CONNECTED = bool(OPENAI_KEY)
     logger.info(" OpenAI configured")
 except:
@@ -294,3 +294,4 @@ async def chat(request: dict):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
