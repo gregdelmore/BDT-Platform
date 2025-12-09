@@ -1,0 +1,70 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>BDT Platform</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 90%;
+        }
+        h1 { color: #1e3c72; margin-bottom: 20px; }
+        .status { 
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 20px 0;
+        }
+        .links {
+            list-style: none;
+            margin-top: 30px;
+        }
+        .links li {
+            margin: 10px 0;
+        }
+        .links a {
+            display: block;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #1e3c72;
+            transition: all 0.3s;
+        }
+        .links a:hover {
+            background: #1e3c72;
+            color: white;
+            transform: translateX(5px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1> BDT Platform</h1>
+        <div class="status"> Frontend Successfully Deployed!</div>
+        <p>Your Behavioral Digital Twin Platform is now running.</p>
+        <ul class="links">
+            <li><a href="/api/docs"> API Documentation</a></li>
+            <li><a href="/login"> Login Page</a></li>
+            <li><a href="/dashboard"> Dashboard</a></li>
+            <li><a href="/health"> Health Check</a></li>
+        </ul>
+    </div>
+</body>
+</html>

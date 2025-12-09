@@ -1,0 +1,196 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: bdt-postgres
+    environment:
+      POSTGRES_DB: bdtplatform
+      POSTGRES_USER: bdtadmin
+      POSTGRES_PASSWORD: PumpkinPi14$
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bdt-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bdtadmin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: bdt-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bdt-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: bdt-backend
+    environment:
+      DATABASE_URL: postgresql://bdtadmin:PumpkinPi14$@postgres:5432/bdtplatform
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID}
+      MICROSOFT_REDIRECT_URI: http://localhost:8000/api/auth/microsoft/callback
+      JWT_SECRET: ${JWT_SECRET:-development_secret_change_in_production}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - chroma_data:/app/data/chroma
+      - uploads_data:/app/uploads
+    networks:
+      - bdt-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: bdt-celery-worker
+    environment:
+      DATABASE_URL: postgresql://bdtadmin:PumpkinPi14$@postgres:5432/bdtplatform
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./backend:/app/backend
+      - chroma_data:/app/data/chroma
+      - uploads_data:/app/uploads
+    networks:
+      - bdt-network
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    command: celery -A backend.tasks worker --loglevel=info --concurrency=4
+
+  # Celery Beat (Scheduler)
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: bdt-celery-beat
+    environment:
+      DATABASE_URL: postgresql://bdtadmin:PumpkinPi14$@postgres:5432/bdtplatform
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - bdt-network
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    command: celery -A backend.tasks beat --loglevel=info
+
+  # Flower (Celery Monitoring) - Optional
+  flower:
+    image: mher/flower:latest
+    container_name: bdt-flower
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      FLOWER_PORT: 5555
+    ports:
+      - "5555:5555"
+    networks:
+      - bdt-network
+    depends_on:
+      - redis
+    command: celery flower --broker=redis://redis:6379/0 --port=5555
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    container_name: bdt-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./pages:/app/pages
+      - ./components:/app/components
+      - ./styles:/app/styles
+      - ./public:/app/public
+    networks:
+      - bdt-network
+    depends_on:
+      - backend
+    command: npm run dev
+
+  # Nginx (Production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: bdt-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - bdt-network
+    depends_on:
+      - backend
+      - frontend
+
+networks:
+  bdt-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  uploads_data:
+
+# Development Dockerfile targets
+# Create a multi-stage Dockerfile with these targets:
+#
+# FROM python:3.11-slim AS backend
+# WORKDIR /app
+# COPY backend/requirements.txt .
+# RUN pip install --no-cache-dir -r requirements.txt
+# 
+# FROM node:18-alpine AS frontend
+# WORKDIR /app
+# COPY package*.json ./
+# RUN npm ci
